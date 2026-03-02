@@ -1,6 +1,18 @@
 {
     "rewrites": [
         {
+            "source": "/api/generate-pix",
+            "destination": "/api/generate-pix"
+        },
+        {
+            "source": "/api/whatsapp/send",
+            "destination": "/api/send-whatsapp"
+        },
+        {
+            "source": "/api/google-sheets/sync",
+            "destination": "/api/sync-sheets"
+        },
+        {
             "source": "/(.*)",
             "destination": "/index.html"
         }
