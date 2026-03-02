@@ -1,0 +1,44 @@
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .print-container, .print-container * {
+    visibility: visible;
+  }
+  .print-container {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+  
+  /* Thermal Receipt Specifics */
+  .thermal-receipt-container {
+    visibility: visible !important;
+    display: block !important;
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 58mm; /* Standard narrow thermal paper */
+    margin: 0;
+    padding: 0;
+  }
+  .thermal-receipt-container * {
+    visibility: visible !important;
+  }
+}
+
+.scale-in-center {
+	animation: scale-in-center 0.4s cubic-bezier(0.250, 0.460, 0.450, 0.940) both;
+}
+
+@keyframes scale-in-center {
+  0% {
+    transform: scale(0);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}

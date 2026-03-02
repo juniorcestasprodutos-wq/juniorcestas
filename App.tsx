@@ -1,0 +1,1999 @@
+
+import React, { useState, useEffect, useMemo } from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { Role, User, Client, Sale, Installment, SaleItem } from './types';
+import { initialSales, mockCollectors, mockClients } from './mockData';
+import Layout from './components/Layout';
+import ReceiptForm from './components/ReceiptForm';
+import { formatCurrency, formatDate, sendWhatsAppMessage, generateRescheduleMessage } from './utils';
+import {
+  Plus, Search, Calendar, UserCheck, DollarSign, Wallet,
+  MapPin, Send, ReceiptText, FileText, CheckCircle, Info, Eye, X,
+  Printer, AlertCircle, TrendingUp, UserPlus, Phone, Hash,
+  CalendarClock, ArrowRight, Route as RouteIcon, Lock, User as UserIcon, Edit2, Power, Contact,
+  History, CreditCard, ChevronRight, AlertTriangle, Filter, Settings, RefreshCw, QrCode,
+  FileSpreadsheet, Truck, Check, Layers
+} from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, AreaChart, Area } from 'recharts';
+import axios from 'axios';
+import ClientPortal from './src/components/ClientPortal';
+import ThermalReceipt from './src/components/ThermalReceipt';
+import { dataService } from './src/dataService';
+import { supabase } from './src/supabaseClient';
+
+const App: React.FC = () => {
+  const [currentUser, setCurrentUser] = useState<User | null>(() => {
+    const saved = localStorage.getItem('credi_facil_user');
+    return saved ? JSON.parse(saved) : null;
+  });
+
+  const [role, setRole] = useState<Role>(currentUser?.role || Role.MASTER);
+  const [activeTab, setActiveTab] = useState<string>(role === Role.MASTER ? 'dashboard' : 'route');
+
+  const [financialReportFilter, setFinancialReportFilter] = useState({
+    period: 'MONTHLY' as 'WEEKLY' | 'MONTHLY' | 'DAILY',
+    startDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
+    endDate: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString().split('T')[0],
+  });
+  const [financialSearch, setFinancialSearch] = useState('');
+
+  const [loginForm, setLoginForm] = useState({ username: '', password: '' });
+  const [loginError, setLoginError] = useState('');
+
+  const [sales, setSales] = useState<Sale[]>([]);
+  const [collectors, setCollectors] = useState<User[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
+
+  // Fetch initial data
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const [u, c, s, config] = await Promise.all([
+          dataService.getUsers(),
+          dataService.getClients(),
+          dataService.getSales(),
+          dataService.getConfig()
+        ]);
+        setCollectors(u);
+        setClients(c);
+        setSales(s);
+        setMpConfig(config);
+      } catch (err) {
+        console.error("Error loading data from Supabase", err);
+      }
+    };
+    loadData();
+  }, []);
+
+  // Modal States
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [isAddCollectorModalOpen, setIsAddCollectorModalOpen] = useState(false);
+  const [isAddClientModalOpen, setIsAddClientModalOpen] = useState(false);
+  const [isAddSaleModalOpen, setIsAddSaleModalOpen] = useState(false);
+  const [selectedSaleForView, setSelectedSaleForView] = useState<Sale | null>(null);
+  const [selectedClientForDetails, setSelectedClientForDetails] = useState<Client | null>(null);
+  const [editingCollectorId, setEditingCollectorId] = useState<string | null>(null);
+
+  const [clientSearch, setClientSearch] = useState('');
+  const [saleSearch, setSaleSearch] = useState('');
+  const [newCollector, setNewCollector] = useState({
+    name: '',
+    phone: '',
+    username: '',
+    password: '',
+    active: true,
+    saleCommissionRate: 0,
+    collectionCommissionRate: 0
+  });
+  const [newClient, setNewClient] = useState({
+    name: '',
+    phone: '',
+    address: '',
+    neighborhood: '',
+    city: '',
+    state: '',
+    cpf: '',
+    rg: '',
+    rgImage: '',
+    cpfImage: '',
+    utilityBillImage: '',
+    housePhoto: '',
+    referralClientId: '',
+    coordinates: { lat: 0, lng: 0 }
+  });
+  const [newSale, setNewSale] = useState({
+    clientId: clients[0]?.id || '',
+    collectorId: collectors[0]?.id || '',
+    deliveryPersonId: '',
+    totalAmount: '',
+    downPayment: '',
+    installmentsCount: '10',
+    description: '',
+    firstDueDate: new Date(new Date().setDate(new Date().getDate() + 30)).toISOString().split('T')[0]
+  });
+
+  const [masterInstallmentsFilter, setMasterInstallmentsFilter] = useState({
+    status: 'ALL' as 'ALL' | 'PENDING' | 'OVERDUE' | 'PAID' | 'TODAY',
+    collectorId: 'ALL',
+    search: ''
+  });
+
+  const [deliveryFilter, setDeliveryFilter] = useState({
+    status: 'ALL' as 'ALL' | 'PENDING' | 'DELIVERED',
+    deliveryPersonId: 'ALL'
+  });
+
+  const [selectedInstallment, setSelectedInstallment] = useState<any>(null);
+  const [paymentAmount, setPaymentAmount] = useState<string>('');
+  const [adjustmentValue, setAdjustmentValue] = useState<string>('');
+  const [adjustmentType, setAdjustmentType] = useState<'FIXED' | 'PERCENT'>('FIXED');
+  const [nextVisitDate, setNextVisitDate] = useState<string>('');
+
+  const [movementsFilter, setMovementsFilter] = useState({
+    type: 'RECEIVED' as 'RECEIVED' | 'OVERDUE',
+    fromDate: new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0],
+    toDate: new Date().toISOString().split('T')[0],
+    collectorId: 'ALL'
+  });
+
+  const [commissionFilter, setCommissionFilter] = useState({
+    fromDate: new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0],
+    toDate: new Date().toISOString().split('T')[0],
+    collectorId: 'ALL'
+  });
+
+  const [mpConfig, setMpConfig] = useState({
+    pfToken: '',
+    pjToken: '',
+    pjThreshold: 20000,
+    infinityPayToken: '',
+    infinityPayEnabled: false,
+    allocationMode: 'SPLIT_BY_THRESHOLD' as 'MP_ONLY' | 'INFINITY_ONLY' | 'SPLIT_BY_THRESHOLD',
+    n8nWebhookUrl: '',
+    autoReassignDays: 5,
+    pixExpirationDays: 5,
+    googleSheetId: '',
+    googleApiKey: '',
+    whatsappApiToken: '',
+    whatsappPhoneNumberId: ''
+  });
+
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [printData, setPrintData] = useState<{ sale: Sale, client: Client, installment?: Installment, type: 'PAYMENT' | 'SALE' } | null>(null);
+
+  const [isGeneratingPix, setIsGeneratingPix] = useState<string | null>(null);
+
+  // Config is now loaded in the main useEffect
+
+  // Automatic Collector Assignment Logic
+  useEffect(() => {
+    if (role !== Role.MASTER) return;
+
+    const runAutoReassign = async () => {
+      const today = new Date().toISOString().split('T')[0];
+      const reassignDays = mpConfig.autoReassignDays || 5;
+
+      let hasGlobalChanges = false;
+      const updatedSales = await Promise.all(sales.map(async (sale) => {
+        const overdueInstallment = sale.installments.find(inst => {
+          if (inst.status === 'PAID') return false;
+          const dueDate = new Date(inst.dueDate);
+          const diffTime = Math.abs(new Date(today).getTime() - dueDate.getTime());
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+          return inst.dueDate < today && diffDays >= reassignDays;
+        });
+
+        if (overdueInstallment && sale.collectorId === 'loja') {
+          const activeCollectors = collectors.filter(c => c.active !== false && c.id !== 'loja');
+          if (activeCollectors.length > 0) {
+            const nextCollector = activeCollectors[0];
+            if (nextCollector.id !== sale.collectorId) {
+              const updatedSale = { ...sale, collectorId: nextCollector.id };
+              await dataService.saveSale(updatedSale);
+              hasGlobalChanges = true;
+              return updatedSale;
+            }
+          }
+        }
+        return sale;
+      }));
+
+      if (hasGlobalChanges) {
+        setSales(updatedSales);
+      }
+    };
+
+    if (sales.length > 0 && collectors.length > 0) {
+      runAutoReassign();
+    }
+  }, [sales.length, collectors.length, mpConfig.autoReassignDays, role]);
+
+  useEffect(() => {
+    if (currentUser) {
+      setRole(currentUser.role);
+      setActiveTab(currentUser.role === Role.MASTER ? 'dashboard' : 'route');
+    }
+  }, [currentUser]);
+
+  const getClientScore = (clientId: string) => {
+    const clientSales = sales.filter(s => s.clientId === clientId);
+    if (clientSales.length === 0) return 100;
+
+    let totalInstallments = 0;
+    let onTimePayments = 0;
+
+    const today = new Date().toISOString().split('T')[0];
+
+    clientSales.forEach(sale => {
+      sale.installments.forEach(inst => {
+        totalInstallments++;
+        if (inst.status === 'PAID') {
+          onTimePayments++;
+        } else if (inst.dueDate >= today) {
+          onTimePayments++;
+        }
+      });
+    });
+
+    return totalInstallments === 0 ? 100 : Math.round((onTimePayments / totalInstallments) * 100);
+  };
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError('');
+    if (loginForm.username === 'master' && loginForm.password === '@admin2026') {
+      const user: User = { id: 'master', name: 'Administrador', phone: '', role: Role.MASTER, active: true };
+      setCurrentUser(user);
+      localStorage.setItem('credi_facil_user', JSON.stringify(user));
+      return;
+    }
+    const collector = collectors.find(c => c.username === loginForm.username && c.password === loginForm.password);
+    if (collector) {
+      if (collector.active === false) {
+        setLoginError('Sua conta está desativada. Entre em contato com o administrador.');
+        return;
+      }
+      setCurrentUser(collector);
+      localStorage.setItem('credi_facil_user', JSON.stringify(collector));
+      return;
+    }
+    setLoginError('Usuário ou senha inválidos.');
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    localStorage.removeItem('credi_facil_user');
+    setLoginForm({ username: '', password: '' });
+  };
+
+  const stats = useMemo(() => {
+    const totalReceivable = sales.reduce((acc, s) => acc + s.totalAmount, 0);
+    const totalCollected = sales.reduce((acc, s) => {
+      return acc + s.installments.reduce((sum, inst) => sum + (inst.paidAmount || 0), 0) + (s.downPayment || 0);
+    }, 0);
+    const pendingCount = sales.reduce((acc, s) => acc + s.installments.filter(i => i.status === 'PENDING' || i.status === 'PARTIAL').length, 0);
+    const dataByCollector = collectors.map(c => {
+      const collSales = sales.filter(s => s.collectorId === c.id);
+      const collected = collSales.reduce((sum, s) => sum + s.installments.reduce((instSum, inst) => instSum + inst.paidAmount, 0) + (s.downPayment || 0), 0);
+      return { name: c.name, valor: collected };
+    });
+    return { totalReceivable, totalCollected, pendingCount, dataByCollector };
+  }, [sales, collectors]);
+
+  const filteredClients = useMemo(() => {
+    return clients.filter(c =>
+      c.name.toLowerCase().includes(clientSearch.toLowerCase()) ||
+      c.cpf.includes(clientSearch) ||
+      c.phone.includes(clientSearch)
+    ).sort((a, b) => a.name.localeCompare(b.name));
+  }, [clients, clientSearch]);
+
+  const filteredSales = useMemo(() => {
+    const activeCollectorId = currentUser?.role === Role.COLLECTOR ? currentUser.id : null;
+    return sales.filter(s => {
+      const client = clients.find(c => c.id === s.clientId);
+      const matchesSearch = s.id.includes(saleSearch) || (client?.name.toLowerCase().includes(saleSearch.toLowerCase()));
+      const matchesCollector = activeCollectorId ? s.collectorId === activeCollectorId : true;
+      return matchesSearch && matchesCollector;
+    }).sort((a, b) => b.date.localeCompare(a.date));
+  }, [sales, clients, saleSearch, currentUser]);
+
+  const todayRoute = useMemo(() => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const items = [];
+    const activeCollectorId = currentUser?.role === Role.COLLECTOR ? currentUser.id : null;
+    for (const sale of sales) {
+      if (role === Role.MASTER || sale.collectorId === activeCollectorId) {
+        for (const inst of sale.installments) {
+          if ((inst.dueDate <= todayStr) && (inst.status === 'PENDING' || inst.status === 'PARTIAL' || inst.status === 'RESCHEDULED')) {
+            const client = clients.find(c => c.id === sale.clientId);
+            items.push({ ...inst, client, sale });
+          }
+        }
+      }
+    }
+    return items.sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  }, [sales, clients, role, currentUser]);
+
+  const futureRoute = useMemo(() => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const items = [];
+    const activeCollectorId = currentUser?.role === Role.COLLECTOR ? currentUser.id : null;
+    for (const sale of sales) {
+      if (role === Role.MASTER || sale.collectorId === activeCollectorId) {
+        for (const inst of sale.installments) {
+          if ((inst.dueDate > todayStr) && (inst.status === 'PENDING' || inst.status === 'PARTIAL' || inst.status === 'RESCHEDULED')) {
+            const client = clients.find(c => c.id === sale.clientId);
+            items.push({ ...inst, client, sale });
+          }
+        }
+      }
+    }
+    return items.sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  }, [sales, clients, role, currentUser]);
+
+  const filteredMovements = useMemo(() => {
+    const items: any[] = [];
+    const today = new Date().toISOString().split('T')[0];
+    const activeCollectorId = currentUser?.role === Role.COLLECTOR ? currentUser.id : null;
+    sales.forEach(sale => {
+      const isAllowedCollector = role === Role.MASTER
+        ? (movementsFilter.collectorId === 'ALL' || sale.collectorId === movementsFilter.collectorId)
+        : (sale.collectorId === activeCollectorId);
+      if (!isAllowedCollector) return;
+      const client = clients.find(c => c.id === sale.clientId);
+      if (movementsFilter.type === 'RECEIVED') {
+        const inDateRange = sale.date >= movementsFilter.fromDate && sale.date <= movementsFilter.toDate;
+        if (sale.downPayment > 0 && inDateRange) {
+          items.push({ dueDate: sale.date, client, sale, number: 0, displayValue: sale.downPayment, typeLabel: 'ENTRADA' });
+        }
+      }
+      sale.installments.forEach(inst => {
+        const inDateRange = inst.dueDate >= movementsFilter.fromDate && inst.dueDate <= movementsFilter.toDate;
+        if (movementsFilter.type === 'RECEIVED') {
+          if (inst.paidAmount > 0 && inDateRange) items.push({ ...inst, client, sale, displayValue: inst.paidAmount, typeLabel: `PARCELA ${inst.number}` });
+        } else {
+          const isOverdue = inst.dueDate < today && (inst.status === 'PENDING' || inst.status === 'PARTIAL' || inst.status === 'RESCHEDULED');
+          if (isOverdue && inDateRange) items.push({ ...inst, client, sale, displayValue: inst.amount - inst.paidAmount, typeLabel: `ATRASO P${inst.number}` });
+        }
+      });
+    });
+    return items.sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  }, [sales, clients, movementsFilter, role, currentUser]);
+
+  const handleSaveCollector = async () => {
+    if (!newCollector.name || !newCollector.phone || !newCollector.username || !newCollector.password) return alert("Preencha todos os campos.");
+    try {
+      const collectorData: Partial<User> = {
+        ...newCollector,
+        role: Role.COLLECTOR,
+        active: newCollector.active,
+        id: editingCollectorId || undefined
+      };
+      await dataService.saveUser(collectorData as User);
+      const updatedCollectors = await dataService.getUsers();
+      setCollectors(updatedCollectors);
+      setNewCollector({
+        name: '',
+        phone: '',
+        username: '',
+        password: '',
+        active: true,
+        saleCommissionRate: 0,
+        collectionCommissionRate: 0
+      });
+      setEditingCollectorId(null);
+      setIsAddCollectorModalOpen(false);
+    } catch (err) {
+      console.error("Error saving collector", err);
+      alert("Erro ao salvar cobrador.");
+    }
+  };
+
+  const handleEditCollector = (c: User) => {
+    setNewCollector({
+      name: c.name,
+      phone: c.phone,
+      username: c.username || '',
+      password: c.password || '',
+      active: c.active !== false,
+      saleCommissionRate: c.saleCommissionRate || 0,
+      collectionCommissionRate: c.collectionCommissionRate || 0
+    });
+    setEditingCollectorId(c.id);
+    setIsAddCollectorModalOpen(true);
+  };
+
+  const handleToggleCollectorStatus = async (collectorId: string) => {
+    try {
+      const collector = collectors.find(c => c.id === collectorId);
+      if (collector) {
+        await dataService.saveUser({ ...collector, active: collector.active === false });
+        const updated = await dataService.getUsers();
+        setCollectors(updated);
+      }
+    } catch (err) {
+      console.error("Error toggling collector status", err);
+    }
+  };
+
+  const handleSaveClient = async () => {
+    if (!newClient.name || !newClient.phone) return alert("Nome e Telefone são obrigatórios");
+    try {
+      const clientId = await dataService.saveClient(newClient);
+      const updatedClients = await dataService.getClients();
+      setClients(updatedClients);
+      setNewSale(prev => ({ ...prev, clientId }));
+      setNewClient({ name: '', phone: '', address: '', city: '', state: '', cpf: '', rg: '' });
+      setIsAddClientModalOpen(false);
+    } catch (err) {
+      console.error("Error saving client", err);
+      alert("Erro ao salvar cliente.");
+    }
+  };
+
+  const filteredCommissions = useMemo(() => {
+    const items: any[] = [];
+    const activeCollectorId = currentUser?.role === Role.COLLECTOR ? currentUser.id : null;
+
+    sales.forEach(sale => {
+      const collector = collectors.find(c => c.id === sale.collectorId);
+      if (!collector) return;
+
+      const isAllowedCollector = role === Role.MASTER
+        ? (commissionFilter.collectorId === 'ALL' || sale.collectorId === commissionFilter.collectorId)
+        : (sale.collectorId === activeCollectorId);
+
+      if (!isAllowedCollector) return;
+
+      const client = clients.find(c => c.id === sale.clientId);
+
+      // Sale Commission
+      if (sale.date >= commissionFilter.fromDate && sale.date <= commissionFilter.toDate) {
+        const rate = collector.saleCommissionRate || 0;
+        const commission = (sale.totalAmount * rate) / 100;
+        if (commission > 0) {
+          items.push({
+            date: sale.date,
+            collectorName: collector.name,
+            clientName: client?.name,
+            type: 'VENDA',
+            baseValue: sale.totalAmount,
+            rate: rate,
+            commission: commission
+          });
+        }
+      }
+
+      // Collection Commission (Down Payment)
+      if (sale.date >= commissionFilter.fromDate && sale.date <= commissionFilter.toDate) {
+        if (sale.downPayment > 0) {
+          const rate = collector.collectionCommissionRate || 0;
+          const commission = (sale.downPayment * rate) / 100;
+          if (commission > 0) {
+            items.push({
+              date: sale.date,
+              collectorName: collector.name,
+              clientName: client?.name,
+              type: 'COBRANÇA (ENTRADA)',
+              baseValue: sale.downPayment,
+              rate: rate,
+              commission: commission
+            });
+          }
+        }
+      }
+
+      // Collection Commission (Installments)
+      sale.installments.forEach(inst => {
+        if (inst.paidAmount > 0 && inst.dueDate >= commissionFilter.fromDate && inst.dueDate <= commissionFilter.toDate) {
+          const rate = collector.collectionCommissionRate || 0;
+          const commission = (inst.paidAmount * rate) / 100;
+          if (commission > 0) {
+            items.push({
+              date: inst.dueDate,
+              collectorName: collector.name,
+              clientName: client?.name,
+              type: `COBRANÇA (P${inst.number})`,
+              baseValue: inst.paidAmount,
+              rate: rate,
+              commission: commission
+            });
+          }
+        }
+      });
+    });
+
+    return items.sort((a, b) => a.date.localeCompare(b.date));
+  }, [sales, collectors, clients, commissionFilter, role, currentUser]);
+
+  const financialReportData = useMemo(() => {
+    const allInstallments = sales.flatMap(s => s.installments.map(i => ({ ...i, sale: s })));
+
+    // Filter by date range
+    const filtered = allInstallments.filter(inst => {
+      return inst.dueDate >= financialReportFilter.startDate && inst.dueDate <= financialReportFilter.endDate;
+    });
+
+    // Group by period
+    const grouped: Record<string, { date: string, received: number, projected: number, total: number }> = {};
+
+    filtered.forEach(inst => {
+      let key = inst.dueDate;
+      if (financialReportFilter.period === 'MONTHLY') {
+        key = inst.dueDate.substring(0, 7); // YYYY-MM
+      } else if (financialReportFilter.period === 'WEEKLY') {
+        const d = new Date(inst.dueDate);
+        const day = d.getDay();
+        const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+        const startOfWeek = new Date(d.setDate(diff));
+        key = startOfWeek.toISOString().split('T')[0];
+      }
+
+      if (!grouped[key]) {
+        grouped[key] = { date: key, received: 0, projected: 0, total: 0 };
+      }
+
+      const amount = (inst.amount + (inst.manualAdjustment || 0));
+      grouped[key].received += inst.paidAmount;
+      grouped[key].projected += amount - inst.paidAmount;
+      grouped[key].total += amount;
+    });
+
+    return Object.values(grouped).sort((a, b) => a.date.localeCompare(b.date));
+  }, [sales, financialReportFilter]);
+
+  const filteredFinancialTransactions = useMemo(() => {
+    const allInstallments = sales.flatMap(s => s.installments.map(i => ({
+      ...i,
+      sale: s,
+      client: clients.find(c => c.id === s.clientId)
+    })));
+
+    return allInstallments.filter(inst => {
+      const inDateRange = inst.dueDate >= financialReportFilter.startDate && inst.dueDate <= financialReportFilter.endDate;
+      if (!inDateRange) return false;
+
+      if (financialSearch) {
+        const search = financialSearch.toLowerCase();
+        return (
+          inst.client?.name.toLowerCase().includes(search) ||
+          inst.sale.id.toLowerCase().includes(search)
+        );
+      }
+      return true;
+    }).sort((a, b) => b.dueDate.localeCompare(a.dueDate));
+  }, [sales, clients, financialReportFilter, financialSearch]);
+
+  const handlePayment = async () => {
+    if (!selectedInstallment || !paymentAmount) return;
+    const amount = parseFloat(paymentAmount);
+    const adjustment = parseFloat(adjustmentValue) || 0;
+
+    try {
+      let finalAdjustment = adjustment;
+      if (adjustmentType === 'PERCENT') {
+        finalAdjustment = (selectedInstallment.amount * adjustment) / 100;
+      }
+
+      const newPaidTotal = selectedInstallment.paidAmount + amount;
+      const totalAmountWithAdjustment = selectedInstallment.amount + (selectedInstallment.manualAdjustment || 0) + finalAdjustment;
+      const isFullPayment = newPaidTotal >= totalAmountWithAdjustment;
+
+      const sale = sales.find(s => s.id === selectedInstallment.saleId);
+      if (!sale) return;
+
+      const updatedInstallments = sale.installments.map(inst => {
+        if (inst.id === selectedInstallment.id) {
+          return {
+            ...inst,
+            paidAmount: newPaidTotal,
+            status: (isFullPayment ? 'PAID' : 'PARTIAL') as any,
+            dueDate: (!isFullPayment && nextVisitDate) ? nextVisitDate : inst.dueDate,
+            manualAdjustment: (inst.manualAdjustment || 0) + finalAdjustment
+          };
+        }
+        if (isFullPayment && nextVisitDate) {
+          const currentIdx = sale.installments.findIndex(i => i.id === selectedInstallment.id);
+          const nextIdx = currentIdx + 1;
+          if (sale.installments[nextIdx] && inst.id === sale.installments[nextIdx].id) return { ...inst, dueDate: nextVisitDate };
+        }
+        return inst;
+      });
+
+      const updatedSale = { ...sale, installments: updatedInstallments };
+      await dataService.saveSale(updatedSale);
+
+      setSales(prev => prev.map(s => s.id === updatedSale.id ? updatedSale : s));
+
+      const client = clients.find(c => c.id === sale.clientId);
+      if (client) {
+        setPrintData({
+          sale: updatedSale,
+          client,
+          installment: { ...selectedInstallment, paidAmount: newPaidTotal, manualAdjustment: (selectedInstallment.manualAdjustment || 0) + finalAdjustment },
+          type: 'PAYMENT'
+        });
+        setTimeout(() => window.print(), 500);
+      }
+
+      setIsPaymentModalOpen(false);
+      setSelectedInstallment(null);
+      setPaymentAmount('');
+      setAdjustmentValue('');
+      setAdjustmentType('FIXED');
+      setNextVisitDate('');
+    } catch (err) {
+      console.error("Error processing payment", err);
+      alert("Erro ao processar pagamento.");
+    }
+  };
+
+  const handleSendWhatsApp = async (phone: string, message: string) => {
+    if (mpConfig.whatsappApiToken && mpConfig.whatsappPhoneNumberId) {
+      try {
+        await axios.post('/api/whatsapp/send', { phone, message });
+        return;
+      } catch (e) {
+        console.error("Erro ao enviar via API, tentando link direto...", e);
+      }
+    }
+    sendWhatsAppMessage(phone, message);
+  };
+
+  const handleReschedule = async (inst: Installment, client: Client) => {
+    const newDate = prompt("Escolha a nova data de vencimento (AAAA-MM-DD):", new Date().toISOString().split('T')[0]);
+    if (!newDate) return;
+    try {
+      const sale = sales.find(s => s.id === inst.saleId);
+      if (!sale) return;
+      const updatedSale = {
+        ...sale,
+        installments: sale.installments.map(i => i.id === inst.id ? { ...i, dueDate: newDate, status: 'RESCHEDULED' as any } : i)
+      };
+      await dataService.saveSale(updatedSale);
+      setSales(prev => prev.map(s => s.id === sale.id ? updatedSale : s));
+      handleSendWhatsApp(client.phone, generateRescheduleMessage(client.name, newDate));
+    } catch (err) {
+      console.error("Error rescheduling", err);
+      alert("Erro ao reagendar.");
+    }
+  };
+
+  const handleSaveSale = async () => {
+    const total = parseFloat(newSale.totalAmount);
+    const down = parseFloat(newSale.downPayment || '0');
+    const count = parseInt(newSale.installmentsCount);
+    if (isNaN(total) || isNaN(count) || count <= 0 || !newSale.clientId) return alert("Preencha todos os campos da venda.");
+
+    try {
+      let tokenType: 'PF' | 'PJ' | 'INFINITY' = 'PF';
+
+      if (mpConfig.allocationMode === 'INFINITY_ONLY') {
+        tokenType = 'INFINITY';
+      } else if (mpConfig.allocationMode === 'MP_ONLY') {
+        const currentPjVolume = sales
+          .filter(s => s.tokenType === 'PJ')
+          .reduce((acc, s) => acc + s.totalAmount, 0);
+        tokenType = (currentPjVolume + total) <= mpConfig.pjThreshold ? 'PJ' : 'PF';
+      } else {
+        const currentPjVolume = sales
+          .filter(s => s.tokenType === 'PJ')
+          .reduce((acc, s) => acc + s.totalAmount, 0);
+
+        if ((currentPjVolume + total) <= mpConfig.pjThreshold) {
+          tokenType = 'PJ';
+        } else if (mpConfig.infinityPayEnabled) {
+          tokenType = 'INFINITY';
+        } else {
+          tokenType = 'PF';
+        }
+      }
+
+      const installmentValue = (total - down) / count;
+      const saleId = (sales.length + 1001).toString();
+      const firstDue = new Date(newSale.firstDueDate);
+      const installments: Installment[] = Array.from({ length: count }, (_, i) => {
+        const d = new Date(firstDue);
+        d.setDate(d.getDate() + (i * 30));
+        return {
+          id: `inst-${saleId}-${i + 1}`,
+          saleId,
+          number: i + 1,
+          dueDate: d.toISOString().split('T')[0],
+          amount: installmentValue,
+          paidAmount: 0,
+          status: 'PENDING',
+          manualAdjustment: 0,
+          pixSent: false
+        };
+      });
+
+      const saleData: Sale = {
+        id: saleId,
+        clientId: newSale.clientId,
+        collectorId: newSale.collectorId || 'loja',
+        date: new Date().toISOString().split('T')[0],
+        items: [{ quantity: 1, description: newSale.description || 'Venda', unitPrice: total, total }],
+        totalAmount: total,
+        downPayment: down,
+        installmentsCount: count,
+        installments,
+        tokenType,
+        deliveryPersonId: newSale.deliveryPersonId || undefined,
+        status: 'PENDING'
+      };
+
+      await dataService.saveSale(saleData);
+      const updatedSales = await dataService.getSales();
+      setSales(updatedSales);
+
+      alert(`Venda lançada com sucesso! Direcionada para: ${tokenType}`);
+      setNewSale(prev => ({ ...prev, totalAmount: '', downPayment: '', description: '', collectorId: 'loja', deliveryPersonId: '' }));
+      setIsAddSaleModalOpen(false);
+    } catch (err) {
+      console.error("Error saving sale", err);
+      alert("Erro ao salvar venda.");
+    }
+  };
+
+  const handleSaveConfig = async () => {
+    try {
+      await dataService.saveConfig(mpConfig);
+      alert("Configurações salvas com sucesso!");
+    } catch (e) {
+      alert("Erro ao salvar configurações.");
+    }
+  };
+
+  const handleReassignSale = (saleId: string, newCollectorId: string) => {
+    setSales(prev => prev.map(s => s.id === saleId ? { ...s, collectorId: newCollectorId } : s));
+    alert("Venda reatribuída com sucesso!");
+  };
+
+  const handleGeneratePix = async (routeItem: any) => {
+    setIsGeneratingPix(routeItem.id);
+    try {
+      const res = await axios.post('/api/generate-pix', {
+        amount: routeItem.amount - routeItem.paidAmount,
+        description: `Parcela ${routeItem.number} - Venda ${routeItem.sale.id}`,
+        tokenType: routeItem.sale.tokenType,
+        clientName: routeItem.client.name,
+        clientPhone: routeItem.client.phone,
+        installmentId: routeItem.id
+      });
+
+      const { pixCode } = res.data;
+
+      const message = `Credi Fácil: Olá ${routeItem.client.name}, segue seu código PIX para pagamento da parcela ${routeItem.number}: \n\n${pixCode}\n\nValor: ${formatCurrency(routeItem.amount - routeItem.paidAmount)}`;
+      handleSendWhatsApp(routeItem.client.phone, message);
+
+      // Update installment to mark as pixSent
+      setSales(prev => prev.map(s => {
+        if (s.id !== routeItem.sale.id) return s;
+        return {
+          ...s,
+          installments: s.installments.map(i => i.id === routeItem.id ? { ...i, pixSent: true } : i)
+        };
+      }));
+
+      // Copy to clipboard
+      await navigator.clipboard.writeText(pixCode);
+      alert("Código PIX gerado e copiado para a área de transferência! Também enviado via WhatsApp.");
+
+    } catch (e: any) {
+      alert(e.response?.data?.error || "Erro ao gerar PIX");
+    } finally {
+      setIsGeneratingPix(null);
+    }
+  };
+
+  const handleTriggerDailyAutomations = async () => {
+    const today = new Date().toISOString().split('T')[0];
+
+    // 1. Today's collections that haven't had PIX sent
+    const todayItems = todayRoute.filter(item => !item.pixSent);
+
+    // 2. Overdue collections (before reassignment threshold) that need daily reminders
+    const overdueItems = [];
+    const reassignDays = mpConfig.autoReassignDays || 5;
+
+    for (const sale of sales) {
+      for (const inst of sale.installments) {
+        if (inst.status !== 'PAID' && inst.dueDate < today) {
+          const dueDate = new Date(inst.dueDate);
+          const diffTime = Math.abs(new Date(today).getTime() - dueDate.getTime());
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+          if (diffDays < reassignDays) {
+            const client = clients.find(c => c.id === sale.clientId);
+            overdueItems.push({ ...inst, client, sale });
+          }
+        }
+      }
+    }
+
+    const allItems = [...todayItems, ...overdueItems];
+
+    if (allItems.length === 0) return alert("Nenhuma cobrança pendente de automação para hoje.");
+
+    if (!confirm(`Deseja disparar cobranças para ${allItems.length} clientes? (${todayItems.length} de hoje e ${overdueItems.length} atrasados)`)) return;
+
+    let successCount = 0;
+    for (const item of allItems) {
+      try {
+        const res = await axios.post('/api/generate-pix', {
+          amount: item.amount - item.paidAmount,
+          description: `Cobrança ${item.dueDate < today ? 'ATRASADA' : ''} P${item.number} - Venda ${item.sale.id}`,
+          tokenType: item.sale.tokenType,
+          clientName: item.client.name,
+          clientPhone: item.client.phone,
+          installmentId: item.id
+        });
+
+        const { pixCode } = res.data;
+        const message = `Credi Fácil: Olá ${item.client.name}, lembrete de sua parcela ${item.dueDate < today ? 'ATRASADA ' : ''}vencendo ${item.dueDate === today ? 'HOJE' : formatDate(item.dueDate)}. \n\nCódigo PIX: ${pixCode}\n\nValor: ${formatCurrency(item.amount - item.paidAmount)}`;
+        handleSendWhatsApp(item.client.phone, message);
+
+        setSales(prev => prev.map(s => {
+          if (s.id !== item.sale.id) return s;
+          return {
+            ...s,
+            installments: s.installments.map(i => i.id === item.id ? { ...i, pixSent: true } : i)
+          };
+        }));
+        successCount++;
+      } catch (e) {
+        console.error("Error triggering automation for", item.client.name, e);
+      }
+    }
+    alert(`Automação concluída! ${successCount} notificações enviadas.`);
+  };
+
+  const handleSyncGoogleSheets = async () => {
+    if (!mpConfig.googleSheetId || !mpConfig.googleApiKey) {
+      return alert("Configure o ID da Planilha e a API Key nas Configurações primeiro.");
+    }
+
+    setIsSyncing(true);
+    try {
+      const res = await axios.post('/api/google-sheets/sync');
+      const { sales: importedSales, clients: importedClients } = res.data;
+
+      if (importedSales.length === 0) {
+        alert("Nenhuma venda com condição 'crediario' encontrada na planilha.");
+        return;
+      }
+
+      // Merge clients
+      setClients(prev => {
+        const newClients = [...prev];
+        importedClients.forEach((ic: any) => {
+          if (!newClients.find(c => c.id === ic.id)) {
+            newClients.push(ic);
+          }
+        });
+        return newClients;
+      });
+
+      // Merge sales (avoid duplicates by ID)
+      setSales(prev => {
+        const newSales = [...prev];
+        importedSales.forEach((is: any) => {
+          if (!newSales.find(s => s.id === is.id)) {
+            // Generate installments for imported sale
+            const installmentValue = (is.totalAmount - is.downPayment) / is.installmentsCount;
+            const installments = Array.from({ length: is.installmentsCount }, (_, i) => {
+              const dueDate = new Date(is.date);
+              dueDate.setDate(dueDate.getDate() + (i + 1) * 30);
+              return {
+                id: `inst-${is.id}-${i + 1}`,
+                saleId: is.id,
+                number: i + 1,
+                dueDate: dueDate.toISOString().split('T')[0],
+                amount: installmentValue,
+                paidAmount: 0,
+                status: 'PENDING' as any
+              };
+            });
+            newSales.push({ ...is, installments });
+          }
+        });
+        return newSales;
+      });
+
+      alert(`${importedSales.length} vendas importadas com sucesso!`);
+    } catch (e: any) {
+      alert(e.response?.data?.error || "Erro ao sincronizar com Google Sheets");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const getSaleOutstandingBalance = (sale: Sale) => {
+    const totalPaid = (sale.downPayment || 0) + sale.installments.reduce((acc, inst) => acc + inst.paidAmount, 0);
+    return sale.totalAmount - totalPaid;
+  };
+
+  const getClientFinancialSummary = (clientId: string) => {
+    const clientSales = sales.filter(s => s.clientId === clientId);
+    const today = new Date().toISOString().split('T')[0];
+    let totalBalance = 0;
+    let overdueAmount = 0;
+    clientSales.forEach(s => {
+      totalBalance += getSaleOutstandingBalance(s);
+      s.installments.forEach(i => {
+        if (i.dueDate < today && i.status !== 'PAID') {
+          overdueAmount += (i.amount - i.paidAmount);
+        }
+      });
+    });
+    return { totalBalance, overdueAmount, saleCount: clientSales.length, isOverdue: overdueAmount > 0 };
+  };
+
+  const ClientDetailsModal = ({ client }: { client: Client }) => {
+    const summary = getClientFinancialSummary(client.id);
+    const score = getClientScore(client.id);
+    const clientSales = sales.filter(s => s.clientId === client.id).sort((a, b) => b.date.localeCompare(a.date));
+    const referral = clients.find(c => c.id === client.referralClientId);
+
+    return (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 print:hidden">
+        <div className="bg-slate-50 rounded-[40px] w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl scale-in-center border border-slate-200">
+          <div className="bg-white px-8 py-6 border-b border-slate-200 flex justify-between items-center shrink-0">
+            <div className="flex items-center gap-4">
+              <div className="bg-blue-600 p-3 rounded-2xl text-white shadow-lg"><Contact size={24} /></div>
+              <div>
+                <h3 className="text-2xl font-black text-slate-900 uppercase tracking-tighter">{client.name}</h3>
+                <p className="text-xs text-slate-400 font-bold uppercase tracking-widest flex items-center gap-2 mt-1"><Phone size={12} /> {client.phone}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="text-right">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Score de Pontualidade</p>
+                <p className={`text-xl font-black ${score >= 80 ? 'text-green-600' : score >= 50 ? 'text-orange-500' : 'text-red-600'}`}>{score}%</p>
+              </div>
+              <button onClick={() => setSelectedClientForDetails(null)} className="p-2 hover:bg-slate-100 rounded-full transition-all"><X size={28} className="text-slate-400" /></button>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto p-8 space-y-8">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+              <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4">
+                <div className="bg-blue-50 p-4 rounded-2xl text-blue-600"><DollarSign size={24} /></div>
+                <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Dívida Total</p><p className="text-xl font-black text-slate-900">{formatCurrency(summary.totalBalance)}</p></div>
+              </div>
+              <div className={`p-6 rounded-3xl border shadow-sm flex items-center gap-4 ${summary.isOverdue ? 'bg-red-50 border-red-100' : 'bg-green-50 border-green-100'}`}>
+                <div className={`p-4 rounded-2xl ${summary.isOverdue ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>{summary.isOverdue ? <AlertTriangle size={24} /> : <CheckCircle size={24} />}</div>
+                <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Em Atraso</p><p className={`text-xl font-black ${summary.isOverdue ? 'text-red-600' : 'text-green-600'}`}>{formatCurrency(summary.overdueAmount)}</p></div>
+              </div>
+              <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4">
+                <div className="bg-slate-50 p-4 rounded-2xl text-slate-400"><FileText size={24} /></div>
+                <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Fichas</p><p className="text-xl font-black text-slate-900">{summary.saleCount}</p></div>
+              </div>
+              <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4">
+                <div className="bg-orange-50 p-4 rounded-2xl text-orange-600"><MapPin size={24} /></div>
+                <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Bairro</p><p className="text-sm font-black text-slate-900 uppercase">{client.neighborhood || 'N/A'}</p></div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <div className="bg-white p-8 rounded-[32px] border border-slate-100 shadow-sm space-y-6">
+                <h4 className="text-sm font-black text-slate-900 uppercase tracking-widest flex items-center gap-2 border-b pb-4"><Info size={18} /> Dados Cadastrais</h4>
+                <div className="grid grid-cols-2 gap-6">
+                  <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">CPF</p><p className="text-sm font-bold">{client.cpf}</p></div>
+                  <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">RG</p><p className="text-sm font-bold">{client.rg}</p></div>
+                  <div className="col-span-2"><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Endereço Completo</p><p className="text-sm font-bold">{client.address}, {client.city} - {client.state}</p></div>
+                  {referral && <div className="col-span-2"><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Indicado por</p><p className="text-sm font-black text-blue-600 uppercase cursor-pointer" onClick={() => setSelectedClientForDetails(referral)}>{referral.name}</p></div>}
+                  {client.coordinates && (
+                    <div className="col-span-2">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Localização (Coordenadas)</p>
+                      <a href={`https://www.google.com/maps?q=${client.coordinates.lat},${client.coordinates.lng}`} target="_blank" rel="noreferrer" className="text-xs font-bold text-blue-600 flex items-center gap-1 hover:underline mt-1">
+                        <MapPin size={12} /> Ver no Google Maps ({client.coordinates.lat}, {client.coordinates.lng})
+                      </a>
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 pt-4">
+                  {client.rgImage && <div className="space-y-1"><p className="text-[8px] font-black text-slate-400 uppercase">RG</p><img src={client.rgImage} alt="RG" className="w-full h-24 object-cover rounded-xl border border-slate-100" referrerPolicy="no-referrer" /></div>}
+                  {client.cpfImage && <div className="space-y-1"><p className="text-[8px] font-black text-slate-400 uppercase">CPF</p><img src={client.cpfImage} alt="CPF" className="w-full h-24 object-cover rounded-xl border border-slate-100" referrerPolicy="no-referrer" /></div>}
+                  {client.utilityBillImage && <div className="space-y-1"><p className="text-[8px] font-black text-slate-400 uppercase">Conta Luz</p><img src={client.utilityBillImage} alt="Conta Luz" className="w-full h-24 object-cover rounded-xl border border-slate-100" referrerPolicy="no-referrer" /></div>}
+                  {client.housePhoto && <div className="space-y-1"><p className="text-[8px] font-black text-slate-400 uppercase">Foto Casa</p><img src={client.housePhoto} alt="Foto Casa" className="w-full h-24 object-cover rounded-xl border border-slate-100" referrerPolicy="no-referrer" /></div>}
+                </div>
+              </div>
+
+              <div className="space-y-6">
+                <h4 className="text-sm font-black text-slate-900 uppercase tracking-widest flex items-center gap-2"><History size={18} /> Histórico de Fichas</h4>
+                <div className="space-y-12 pb-12">
+                  {clientSales.length > 0 ? clientSales.map(sale => (
+                    <div key={sale.id} className="relative group">
+                      <div className="absolute -top-6 left-0 flex items-center gap-2">
+                        <span className="bg-slate-900 text-white text-[10px] font-black px-3 py-1 rounded-lg shadow-lg">FICHA Nº {sale.id}</span>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{formatDate(sale.date)}</span>
+                      </div>
+                      <div className="flex justify-center scale-95 origin-top group-hover:scale-100 transition-transform">
+                        <ReceiptForm
+                          saleId={sale.id}
+                          clientName={client.name.toUpperCase()}
+                          date={sale.date}
+                          items={sale.items}
+                          totalAmount={sale.totalAmount}
+                          downPayment={sale.downPayment}
+                          installments={sale.installments}
+                        />
+                      </div>
+                    </div>
+                  )) : <div className="text-center py-20 text-slate-300 font-black uppercase tracking-widest italic">Nenhuma ficha cadastrada</div>}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const handleUpdateSaleStatus = async (saleId: string, status: 'PENDING' | 'DELIVERED' | 'CANCELLED') => {
+    try {
+      const sale = sales.find(s => s.id === saleId);
+      if (sale) {
+        const updatedSale = { ...sale, status };
+        await dataService.saveSale(updatedSale);
+        setSales(prev => prev.map(s => s.id === saleId ? updatedSale : s));
+      }
+    } catch (err) {
+      console.error("Error updating sale status", err);
+    }
+  };
+
+  const MasterInstallments = () => {
+    const allInstallments = sales.flatMap(s => s.installments.map(i => ({ ...i, sale: s, client: clients.find(c => c.id === s.clientId) })));
+    const today = new Date().toISOString().split('T')[0];
+
+    const filtered = allInstallments.filter(inst => {
+      if (masterInstallmentsFilter.status === 'TODAY' && inst.dueDate !== today) return false;
+      if (masterInstallmentsFilter.status === 'OVERDUE' && (inst.dueDate >= today || inst.status === 'PAID')) return false;
+      if (masterInstallmentsFilter.status === 'PAID' && inst.status !== 'PAID') return false;
+      if (masterInstallmentsFilter.status === 'PENDING' && inst.status !== 'PENDING') return false;
+      if (masterInstallmentsFilter.collectorId !== 'ALL' && inst.sale.collectorId !== masterInstallmentsFilter.collectorId) return false;
+      if (masterInstallmentsFilter.search) {
+        const search = masterInstallmentsFilter.search.toLowerCase();
+        return inst.client?.name.toLowerCase().includes(search) || inst.sale.id.toLowerCase().includes(search);
+      }
+      return true;
+    }).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+
+    return (
+      <div className="space-y-6">
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-6">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div><h2 className="text-xl font-black uppercase tracking-tight">Gestão de Parcelas</h2><p className="text-sm text-gray-400 font-bold">{filtered.length} parcelas encontradas</p></div>
+            <div className="flex flex-wrap gap-2">
+              {['ALL', 'TODAY', 'OVERDUE', 'PENDING', 'PAID'].map(status => (
+                <button
+                  key={status}
+                  onClick={() => setMasterInstallmentsFilter({ ...masterInstallmentsFilter, status: status as any })}
+                  className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${masterInstallmentsFilter.status === status ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}
+                >
+                  {status === 'ALL' ? 'Todas' : status === 'TODAY' ? 'Hoje' : status === 'OVERDUE' ? 'Atrasadas' : status === 'PENDING' ? 'Pendentes' : 'Pagas'}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="relative flex-1">
+              <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input type="text" placeholder="Buscar cliente ou venda..." value={masterInstallmentsFilter.search} onChange={e => setMasterInstallmentsFilter({ ...masterInstallmentsFilter, search: e.target.value })} className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-600" />
+            </div>
+            <select value={masterInstallmentsFilter.collectorId} onChange={e => setMasterInstallmentsFilter({ ...masterInstallmentsFilter, collectorId: e.target.value })} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-600 font-bold text-slate-600 uppercase">
+              <option value="ALL">Todos os Cobradores</option>
+              {collectors.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="bg-white rounded-3xl shadow-xl border border-slate-100 overflow-hidden">
+          <div className="overflow-x-auto"><table className="w-full text-left"><thead className="bg-slate-50 border-b border-slate-100"><tr><th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Vencimento</th><th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Cliente</th><th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Venda</th><th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Valor</th><th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Cobrador</th><th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th><th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Ações</th></tr></thead><tbody className="divide-y divide-slate-50">{filtered.map((inst) => (<tr key={inst.id} className="hover:bg-slate-50/50"><td className="px-6 py-5 text-sm font-bold text-slate-600">{formatDate(inst.dueDate)}</td><td className="px-6 py-5 text-sm font-black text-slate-800 uppercase">{inst.client?.name}</td><td className="px-6 py-5 text-sm font-bold text-slate-400">#{inst.sale.id} (P{inst.number})</td><td className="px-6 py-5 text-sm font-black text-blue-600">{formatCurrency(inst.amount)}</td><td className="px-6 py-5 text-[10px] font-bold text-slate-400 uppercase">{collectors.find(c => c.id === inst.sale.collectorId)?.name}</td><td className="px-6 py-5"><span className={`text-[8px] font-black px-2 py-1 rounded-lg uppercase tracking-widest ${inst.status === 'PAID' ? 'bg-green-100 text-green-600' : inst.dueDate < today ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>{inst.status === 'PAID' ? 'Pago' : inst.dueDate < today ? 'Atrasado' : 'Pendente'}</span></td><td className="px-6 py-5 text-right flex justify-end gap-2"><button onClick={() => setSelectedSaleForView(inst.sale)} className="p-2 text-slate-300 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"><Eye size={18} /></button><button onClick={() => { setSelectedInstallment(inst); setIsPaymentModalOpen(true); }} className="p-2 text-slate-300 hover:text-green-600 hover:bg-green-50 rounded-lg transition-all"><DollarSign size={18} /></button></td></tr>))}</tbody></table></div>
+        </div>
+      </div>
+    );
+  };
+
+  const DeliveryModule = () => {
+    const deliverySales = sales.filter(s => {
+      if (deliveryFilter.status !== 'ALL' && s.status !== deliveryFilter.status) return false;
+      if (deliveryFilter.deliveryPersonId !== 'ALL' && s.deliveryPersonId !== deliveryFilter.deliveryPersonId) return false;
+      return true;
+    }).sort((a, b) => b.date.localeCompare(a.date));
+    const deliveryPeople = collectors.filter(c => c.role === Role.DELIVERY || c.role === Role.MASTER);
+    return (
+      <div className="space-y-6">
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-6">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div><h2 className="text-xl font-black uppercase tracking-tight">Módulo de Entregas</h2><p className="text-sm text-gray-400 font-bold">{deliverySales.length} entregas filtradas</p></div>
+            <div className="flex flex-wrap gap-2">
+              {['ALL', 'PENDING', 'DELIVERED', 'CANCELLED'].map(status => (
+                <button key={status} onClick={() => setDeliveryFilter({ ...deliveryFilter, status: status as any })} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${deliveryFilter.status === status ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}>{status === 'ALL' ? 'Todas' : status === 'PENDING' ? 'Pendentes' : status === 'DELIVERED' ? 'Entregues' : 'Canceladas'}</button>
+              ))}
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <select value={deliveryFilter.deliveryPersonId} onChange={e => setDeliveryFilter({ ...deliveryFilter, deliveryPersonId: e.target.value })} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-600 font-bold text-slate-600 uppercase">
+              <option value="ALL">Todos os Entregadores</option>
+              {deliveryPeople.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {deliverySales.map(sale => {
+            const client = clients.find(c => c.id === sale.clientId);
+            return (
+              <div key={sale.id} className="bg-white p-6 rounded-3xl shadow-xl border border-slate-100 hover:shadow-2xl transition-all group">
+                <div className="flex justify-between items-start mb-6"><div className="bg-blue-50 p-4 rounded-2xl text-blue-600"><Truck size={24} /></div><span className={`text-[10px] font-black px-3 py-1 rounded-lg uppercase tracking-widest ${sale.status === 'DELIVERED' ? 'bg-green-100 text-green-600' : sale.status === 'PENDING' ? 'bg-orange-100 text-orange-600' : 'bg-red-100 text-red-600'}`}>{sale.status === 'DELIVERED' ? 'Entregue' : sale.status === 'PENDING' ? 'Pendente' : 'Cancelada'}</span></div>
+                <div className="space-y-4">
+                  <div><h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter truncate">{client?.name}</h3><p className="text-sm text-slate-500 font-bold flex items-center gap-1"><MapPin size={12} /> {client?.address}</p><p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">{client?.neighborhood}</p></div>
+                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100"><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Itens do Pedido</p><div className="space-y-1">{sale.items.map((item, idx) => (<p key={idx} className="text-xs font-bold text-slate-700">{item.quantity}x {item.description}</p>))}</div></div>
+                  <div className="flex justify-between items-center pt-4 border-t border-slate-50">
+                    <div className="text-left"><p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Entregador</p><p className="text-xs font-black text-slate-700 uppercase">{deliveryPeople.find(p => p.id === sale.deliveryPersonId)?.name || 'Não atribuído'}</p></div>
+                    <div className="flex gap-2">
+                      {sale.status === 'PENDING' && <button onClick={() => handleUpdateSaleStatus(sale.id, 'DELIVERED')} className="p-3 bg-green-600 text-white rounded-xl hover:bg-green-700 shadow-lg transition-all active:scale-95"><Check size={20} /></button>}
+                      <button onClick={() => setSelectedSaleForView(sale)} className="p-3 bg-slate-100 text-slate-400 hover:text-blue-600 rounded-xl transition-all"><Eye size={20} /></button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const RouteList = ({ items, title }: { items: any[], title: string }) => {
+    const groupedByNeighborhood = items.reduce((acc: any, item) => {
+      const neighborhood = item.client?.neighborhood || 'Sem Bairro';
+      if (!acc[neighborhood]) acc[neighborhood] = [];
+      acc[neighborhood].push(item);
+      return acc;
+    }, {});
+
+    return (
+      <div className="space-y-8">
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="bg-blue-600 text-white p-3 rounded-xl shadow-lg"><RouteIcon size={24} /></div>
+            <div><h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">{title}</h2><p className="text-sm font-bold text-slate-400">{items.length} clientes na lista</p></div>
+          </div>
+        </div>
+
+        {Object.keys(groupedByNeighborhood).length > 0 ? Object.keys(groupedByNeighborhood).sort().map(neighborhood => (
+          <div key={neighborhood} className="space-y-4">
+            <div className="flex items-center gap-4">
+              <div className="h-px flex-1 bg-slate-200"></div>
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] bg-slate-100 px-4 py-1 rounded-full">{neighborhood}</span>
+              <div className="h-px flex-1 bg-slate-200"></div>
+            </div>
+            <div className="grid grid-cols-1 gap-4">
+              {groupedByNeighborhood[neighborhood].map((routeItem: any) => (
+                <div key={routeItem.id} className="bg-white rounded-3xl p-6 shadow-xl border-l-8 border-blue-600 flex flex-col md:flex-row gap-6 hover:shadow-2xl transition-all group">
+                  <div className="flex-1">
+                    <div className="flex justify-between items-start">
+                      <div><h3 onClick={() => setSelectedClientForDetails(routeItem.client)} className="text-xl font-black text-slate-900 uppercase tracking-tighter group-hover:text-blue-600 transition-colors cursor-pointer">{routeItem.client?.name}</h3><p className="text-sm text-slate-500 font-bold flex items-center gap-1"><MapPin size={12} /> {routeItem.client?.address}</p></div>
+                      <div className="flex gap-2">
+                        <button onClick={() => setSelectedSaleForView(routeItem.sale)} className="p-3 bg-slate-100 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-2xl transition-all"><Eye size={20} /></button>
+                        <span className="bg-slate-900 text-white text-[10px] font-black px-3 py-1.5 rounded-xl uppercase tracking-widest">#{routeItem.sale.id}</span>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3 mt-6">
+                      <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 text-center"><p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Parcela</p><p className="text-sm font-black text-slate-700">{routeItem.number}/{routeItem.sale.installmentsCount}</p></div>
+                      <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 text-center"><p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Vencimento</p><p className="text-sm font-black text-slate-700">{formatDate(routeItem.dueDate)}</p></div>
+                      <div className="bg-blue-50 p-3 rounded-2xl border border-blue-100 text-center"><p className="text-[8px] font-black text-blue-400 uppercase tracking-widest mb-1">Cobrar</p><p className="text-sm font-black text-blue-600">{formatCurrency(routeItem.amount - routeItem.paidAmount)}</p></div>
+                    </div>
+                  </div>
+                  <div className="flex md:flex-col gap-3 justify-end shrink-0">
+                    <button
+                      onClick={() => handleGeneratePix(routeItem)}
+                      disabled={isGeneratingPix === routeItem.id}
+                      className={`flex-1 md:flex-none flex items-center justify-center gap-2 px-8 py-4 ${isGeneratingPix === routeItem.id ? 'bg-slate-300' : 'bg-slate-900'} text-white font-black uppercase text-xs tracking-widest rounded-2xl hover:bg-slate-800 shadow-xl transition-all`}
+                    >
+                      {isGeneratingPix === routeItem.id ? <RefreshCw size={20} className="animate-spin" /> : <QrCode size={20} />}
+                      {routeItem.pixSent ? 'PIX ENVIADO' : 'PIX'}
+                    </button>
+                    <button onClick={() => { setSelectedInstallment(routeItem); setIsPaymentModalOpen(true); const nextDate = new Date(routeItem.dueDate); nextDate.setDate(nextDate.getDate() + 30); setNextVisitDate(nextDate.toISOString().split('T')[0]); }} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-8 py-4 bg-blue-600 text-white font-black uppercase text-xs tracking-widest rounded-2xl hover:bg-blue-700 shadow-xl transition-all"><DollarSign size={20} /> Receber</button>
+                    <button onClick={() => handleReschedule(routeItem, routeItem.client!)} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-8 py-4 bg-white text-orange-600 border-2 border-orange-100 font-black uppercase text-xs tracking-widest rounded-2xl hover:bg-orange-50 transition-all"><Calendar size={20} /> Reagendar</button>
+                    <button onClick={() => handleSendWhatsApp(routeItem.client?.phone!, `Credi Fácil: Olá ${routeItem.client?.name}, estou chegando para sua parcela.`)} className="p-4 bg-green-500 text-white rounded-2xl hover:bg-green-600 shadow-lg"><Send size={20} /></button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )) : (
+          <div className="flex flex-col items-center justify-center h-[40vh] text-slate-300">
+            <UserCheck size={64} className="mb-4 opacity-10" />
+            <h3 className="text-lg font-black uppercase tracking-widest">Lista Vazia</h3>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  if (!currentUser) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+        <div className="bg-white rounded-[40px] w-full max-md p-10 shadow-2xl overflow-hidden relative border border-slate-100 scale-in-center">
+          <div className="absolute top-0 right-0 p-8 opacity-5"><Lock size={120} /></div>
+          <div className="mb-10"><div className="bg-blue-600 w-16 h-16 rounded-2xl flex items-center justify-center mb-6 shadow-xl shadow-blue-200"><ReceiptText size={32} className="text-white" /></div><h1 className="text-4xl font-black text-slate-900 uppercase tracking-tighter leading-none mb-2">Credi Fácil</h1><p className="text-slate-500 font-bold uppercase tracking-widest text-xs">Gestão de Cobranças v2.0</p></div>
+          <form onSubmit={handleLogin} className="space-y-6">
+            <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-[0.2em] px-1">Usuário</label><div className="relative"><div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-300"><UserIcon size={18} /></div><input type="text" value={loginForm.username} onChange={e => setLoginForm({ ...loginForm, username: e.target.value })} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 pl-12 pr-4 text-sm font-black outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all" placeholder="Seu usuário" required /></div></div>
+            <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-[0.2em] px-1">Senha</label><div className="relative"><div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-300"><Lock size={18} /></div><input type="password" value={loginForm.password} onChange={e => setLoginForm({ ...loginForm, password: e.target.value })} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 pl-12 pr-4 text-sm font-black outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all" placeholder="••••••••" required /></div></div>
+            {loginError && <div className="bg-red-50 text-red-600 p-4 rounded-2xl text-xs font-black uppercase tracking-widest border border-red-100 flex items-center gap-3"><AlertCircle size={16} />{loginError}</div>}
+            <button type="submit" className="w-full py-5 bg-blue-600 text-white font-black uppercase text-sm tracking-widest rounded-2xl hover:bg-blue-700 shadow-2xl shadow-blue-200 transition-all active:scale-95 mt-4">Entrar no Sistema</button>
+          </form>
+          <div className="mt-12 pt-8 border-t border-slate-100 text-center"><p className="text-[10px] font-bold text-slate-300 uppercase tracking-widest">Acesso restrito a pessoal autorizado</p></div>
+        </div>
+      </div>
+    );
+  }
+
+  if (window.location.pathname === '/cobranca') {
+    return (
+      <>
+        <ClientPortal sales={sales} clients={clients} />
+        {printData && (
+          <ThermalReceipt
+            sale={printData.sale}
+            client={printData.client}
+            installment={printData.installment}
+            type={printData.type}
+          />
+        )}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <Layout activeRole={role} currentUser={currentUser} activeTab={activeTab} setActiveTab={setActiveTab} onLogout={handleLogout}>
+        {role === Role.MASTER && activeTab === 'dashboard' && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4"><div className="bg-blue-100 p-4 rounded-lg text-blue-600"><DollarSign size={24} /></div><div><p className="text-sm text-gray-500 font-medium">Total Geral</p><p className="text-2xl font-bold">{formatCurrency(stats.totalReceivable)}</p></div></div>
+              <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4"><div className="bg-green-100 p-4 rounded-lg text-green-600"><Wallet size={24} /></div><div><p className="text-sm text-gray-500 font-medium">Saldo Recebido</p><p className="text-2xl font-bold">{formatCurrency(stats.totalCollected)}</p></div></div>
+              <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4"><div className="bg-orange-100 p-4 rounded-lg text-orange-600"><Calendar size={24} /></div><div><p className="text-sm text-gray-500 font-medium">Pendências Atuais</p><p className="text-2xl font-bold">{stats.pendingCount}</p></div></div>
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100"><h3 className="text-lg font-bold mb-6">Receita por Cobrador</h3><div className="h-[300px]"><ResponsiveContainer width="100%" height="100%"><BarChart data={stats.dataByCollector}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="name" /><YAxis /><Tooltip formatter={(v: number) => formatCurrency(v)} /><Bar dataKey="valor" fill="#2563eb" radius={[4, 4, 0, 0]} /></BarChart></ResponsiveContainer></div></div>
+              <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100"><h3 className="text-lg font-bold mb-6 flex items-center gap-2"><FileText className="text-slate-400" />Fichas Ativas</h3><div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">{[...sales].reverse().map((sale) => { const client = clients.find(c => c.id === sale.clientId); return (<div key={sale.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg group"><div><p className="font-bold text-sm">{client?.name}</p><p className="text-[10px] text-gray-400">Nº {sale.id} • {sale.installmentsCount}x</p></div><div className="flex items-center gap-4"><div className="text-right"><p className="text-sm font-bold">{formatCurrency(sale.totalAmount)}</p><p className="text-[10px] text-blue-600 font-bold uppercase tracking-widest text-[8px]">Master</p></div><button onClick={() => setSelectedSaleForView(sale)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-white rounded-lg transition-all"><Eye size={20} /></button></div></div>); })}</div></div>
+            </div>
+          </div>
+        )}
+
+        {role === Role.MASTER && activeTab === 'clients' && (
+          <div className="space-y-6">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+              <div><h2 className="text-xl font-black uppercase tracking-tight">Gestão de Clientes</h2><p className="text-sm text-gray-400 font-bold">Total de {clients.length} cadastrados</p></div>
+              <div className="flex flex-col sm:flex-row w-full md:w-auto gap-4">
+                <div className="relative flex-1 sm:w-64"><Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input type="text" placeholder="Buscar por nome ou CPF..." value={clientSearch} onChange={e => setClientSearch(e.target.value)} className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-600" /></div>
+                <button onClick={() => setIsAddClientModalOpen(true)} className="flex items-center justify-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-blue-700 shadow-lg transition-all active:scale-95"><Plus size={20} /> Novo Cliente</button>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {filteredClients.map(c => {
+                const clientSummary = getClientFinancialSummary(c.id);
+                return (
+                  <div key={c.id} onClick={() => setSelectedClientForDetails(c)} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-all cursor-pointer group relative overflow-hidden">
+                    {clientSummary.isOverdue && <div className="absolute top-0 right-0 p-2 bg-red-600 text-white rounded-bl-xl shadow-lg animate-pulse"><AlertTriangle size={16} /></div>}
+                    <div className="flex items-start justify-between mb-4">
+                      <div className={`p-3 rounded-xl ${clientSummary.isOverdue ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'}`}><Contact size={24} /></div>
+                      <div className="text-right"><span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Fichas</span><span className="text-lg font-black text-slate-900">{clientSummary.saleCount}</span></div>
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight truncate group-hover:text-blue-600 transition-colors">{c.name}</h3>
+                      <div className="mt-3 space-y-2">
+                        <p className="text-xs text-slate-500 font-bold flex items-center gap-2"><Phone size={14} className="text-slate-300" /> {c.phone}</p>
+                        <p className="text-xs text-slate-500 font-bold flex items-center gap-2"><MapPin size={14} className="text-slate-300" /> {c.address}</p>
+                        <div className="flex justify-between items-center pt-2 border-t border-slate-50 mt-4">
+                          <span className={`text-[10px] font-black px-3 py-1 rounded-lg uppercase tracking-widest ${clientSummary.isOverdue ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>{clientSummary.isOverdue ? 'Em Atraso' : 'Em Dia'}</span>
+                          <span className="text-xs font-black text-slate-400 group-hover:translate-x-1 transition-transform flex items-center gap-1">Detalhes <ChevronRight size={14} /></span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'sales' && (
+          <div className="space-y-6">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+              <div><h2 className="text-xl font-black uppercase tracking-tight">Gestão de Vendas</h2><p className="text-sm text-gray-400 font-bold">{filteredSales.length} vendas registradas</p></div>
+              <div className="flex flex-col sm:flex-row w-full md:w-auto gap-4">
+                <div className="relative flex-1 sm:w-64"><Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input type="text" placeholder="Buscar por cliente ou ID..." value={saleSearch} onChange={e => setSaleSearch(e.target.value)} className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-600" /></div>
+                <button
+                  onClick={handleSyncGoogleSheets}
+                  disabled={isSyncing}
+                  className="flex items-center justify-center gap-2 bg-green-100 text-green-600 px-6 py-3 rounded-xl font-bold hover:bg-green-200 transition-all active:scale-95 disabled:opacity-50"
+                >
+                  {isSyncing ? <RefreshCw size={18} className="animate-spin" /> : <FileSpreadsheet size={18} />}
+                  Sincronizar Planilha
+                </button>
+                <button onClick={() => setIsAddSaleModalOpen(true)} className="flex items-center justify-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-blue-700 shadow-lg transition-all active:scale-95"><Plus size={20} /> Lançar Venda</button>
+              </div>
+            </div>
+            <div className="bg-white rounded-3xl shadow-xl border border-slate-100 overflow-hidden">
+              <div className="overflow-x-auto"><table className="w-full text-left"><thead className="bg-slate-50 border-b border-slate-100"><tr><th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">ID</th><th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Cliente</th><th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Total</th><th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Saldo</th><th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Cobrador</th><th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Ações</th></tr></thead><tbody className="divide-y divide-slate-50">{filteredSales.length > 0 ? filteredSales.map((sale) => {
+                const client = clients.find(c => c.id === sale.clientId);
+                const collector = collectors.find(c => c.id === sale.collectorId);
+                const balance = getSaleOutstandingBalance(sale);
+                return (<tr key={sale.id} className="hover:bg-slate-50/50">
+                  <td className="px-6 py-5 text-sm font-bold text-slate-600">#{sale.id}</td>
+                  <td className="px-6 py-5 text-sm font-black text-slate-800 uppercase cursor-pointer hover:text-blue-600" onClick={() => setSelectedClientForDetails(client || null)}>{client?.name}</td>
+                  <td className="px-6 py-5 text-sm font-bold">{formatCurrency(sale.totalAmount)} <span className="text-[8px] bg-slate-100 px-1 rounded">{sale.tokenType}</span></td>
+                  <td className="px-6 py-5 text-sm font-black text-blue-600">{formatCurrency(balance)}</td>
+                  <td className="px-6 py-5">
+                    {role === Role.MASTER ? (
+                      <select
+                        value={sale.collectorId}
+                        onChange={(e) => handleReassignSale(sale.id, e.target.value)}
+                        className="text-[10px] font-bold text-slate-600 uppercase bg-transparent border-none outline-none cursor-pointer hover:text-blue-600"
+                      >
+                        {collectors.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                    ) : (
+                      <span className="text-[10px] font-bold text-slate-400 uppercase">{collector?.name}</span>
+                    )}
+                  </td>
+                  <td className="px-6 py-5 text-right"><button onClick={() => setSelectedSaleForView(sale)} className="p-3 text-slate-300 hover:text-blue-600 hover:bg-blue-50 rounded-2xl transition-all"><Eye size={20} /></button></td>
+                </tr>);
+              }) : (<tr><td colSpan={6} className="px-6 py-20 text-center text-slate-300 italic">Nenhuma venda encontrada</td></tr>)}</tbody></table></div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'route' && <RouteList items={todayRoute} title="Rota de Hoje" />}
+        {activeTab === 'future' && <RouteList items={futureRoute} title="Cobranças Futuras" />}
+        {activeTab === 'master_installments' && <MasterInstallments />}
+        {activeTab === 'delivery' && <DeliveryModule />}
+
+        {role === Role.MASTER && activeTab === 'collectors' && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+              <div><h2 className="text-xl font-black uppercase tracking-tight">Gestão de Cobradores</h2><p className="text-sm text-gray-400 font-bold">Gerencie sua equipe de campo</p></div>
+              <button onClick={() => { setEditingCollectorId(null); setNewCollector({ name: '', phone: '', username: '', password: '', active: true }); setIsAddCollectorModalOpen(true); }} className="flex items-center justify-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-blue-700 shadow-lg transition-all active:scale-95"><UserPlus size={20} /> Novo Cobrador</button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">{collectors.map(c => (
+              <div key={c.id} className={`bg-white p-6 rounded-2xl shadow-sm border transition-all ${c.active === false ? 'border-red-100 bg-red-50/10 opacity-75' : 'border-gray-100'} flex flex-col gap-4 relative group`}>
+                <div className="absolute top-4 right-4 flex gap-2">
+                  <button onClick={() => handleEditCollector(c)} className="p-2 text-slate-400 hover:text-blue-600 bg-slate-50 hover:bg-blue-50 rounded-lg transition-all"><Edit2 size={16} /></button>
+                  <button onClick={() => handleToggleCollectorStatus(c.id)} className={`p-2 rounded-lg transition-all ${c.active === false ? 'text-green-600 bg-green-50 hover:bg-green-100' : 'text-red-400 bg-red-50 hover:bg-red-100'}`}><Power size={16} /></button>
+                </div>
+                <div className="flex items-center gap-4"><div className={`p-4 rounded-full transition-colors ${c.active === false ? 'bg-red-100 text-red-400' : 'bg-slate-100 text-slate-400'}`}><UserCheck size={24} /></div><div><h3 className="font-black text-slate-800 uppercase tracking-tight">{c.name}</h3><p className="text-xs font-bold text-slate-400">{c.phone}</p></div></div>
+                <div className="bg-white/50 p-3 rounded-xl border border-slate-100 flex justify-between items-center"><span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</span><span className={`transition-all ${c.active === false ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'} text-[9px] font-black px-2 py-0.5 rounded-lg uppercase`}>{c.active === false ? 'Inativo' : 'Ativo'}</span></div>
+              </div>
+            ))}</div>
+          </div>
+        )}
+
+        {role === Role.MASTER && activeTab === 'settings' && (
+          <div className="space-y-6">
+            <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
+              <div className="flex items-center gap-4 mb-8">
+                <div className="bg-blue-600 p-3 rounded-2xl text-white shadow-lg"><Settings size={24} /></div>
+                <div><h2 className="text-2xl font-black text-slate-900 uppercase tracking-tighter">Configurações do Sistema</h2><p className="text-sm text-slate-400 font-bold uppercase tracking-widest">Integração Mercado Pago e Automação</p></div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="space-y-6">
+                  <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest border-b pb-2 flex items-center gap-2"><CreditCard size={18} /> Mercado Pago (PF)</h3>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Access Token Pessoa Física</label>
+                    <input type="password" value={mpConfig.pfToken} onChange={e => setMpConfig({ ...mpConfig, pfToken: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" placeholder="APP_USR-..." />
+                  </div>
+                </div>
+
+                <div className="space-y-6">
+                  <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest border-b pb-2 flex items-center gap-2"><CreditCard size={18} /> Mercado Pago (PJ)</h3>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Access Token Pessoa Jurídica</label>
+                    <input type="password" value={mpConfig.pjToken} onChange={e => setMpConfig({ ...mpConfig, pjToken: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" placeholder="APP_USR-..." />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Limite para PJ (R$)</label>
+                    <input type="number" value={mpConfig.pjThreshold} onChange={e => setMpConfig({ ...mpConfig, pjThreshold: parseInt(e.target.value) })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" />
+                    <p className="text-[10px] text-slate-400 mt-1 italic">Vendas até este valor acumulado serão direcionadas para o token PJ.</p>
+                  </div>
+                </div>
+
+                <div className="space-y-6">
+                  <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest border-b pb-2 flex items-center gap-2"><CreditCard size={18} /> InfinityPay (PJ)</h3>
+                  <div className="flex items-center gap-3 mb-4">
+                    <input type="checkbox" id="inf-enabled" checked={mpConfig.infinityPayEnabled} onChange={e => setMpConfig({ ...mpConfig, infinityPayEnabled: e.target.checked })} className="w-5 h-5 rounded accent-blue-600" />
+                    <label htmlFor="inf-enabled" className="text-sm font-black text-slate-600 uppercase tracking-widest cursor-pointer">Ativar InfinityPay</label>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Access Token InfinityPay</label>
+                    <input type="password" value={mpConfig.infinityPayToken} onChange={e => setMpConfig({ ...mpConfig, infinityPayToken: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" placeholder="Bearer Token..." />
+                  </div>
+                </div>
+
+                <div className="space-y-6">
+                  <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest border-b pb-2 flex items-center gap-2"><Settings size={18} /> Rateio de Recebimento</h3>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Modo de Distribuição</label>
+                    <select value={mpConfig.allocationMode} onChange={e => setMpConfig({ ...mpConfig, allocationMode: e.target.value as any })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold">
+                      <option value="MP_ONLY">Apenas Mercado Pago (PJ até limite, depois PF)</option>
+                      <option value="INFINITY_ONLY">Apenas InfinityPay</option>
+                      <option value="SPLIT_BY_THRESHOLD">Híbrido (PJ até limite, depois InfinityPay/PF)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="space-y-6">
+                  <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest border-b pb-2 flex items-center gap-2"><Send size={18} /> WhatsApp (N8N Webhook)</h3>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">URL do Webhook N8N</label>
+                    <input type="text" value={mpConfig.n8nWebhookUrl} onChange={e => setMpConfig({ ...mpConfig, n8nWebhookUrl: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" placeholder="https://n8n.seu-servidor.com/webhook/..." />
+                  </div>
+                </div>
+
+                <div className="space-y-6">
+                  <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest border-b pb-2 flex items-center gap-2"><RefreshCw size={18} /> Automação de Cobrança</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Dias p/ Reatribuição</label>
+                      <input type="number" value={mpConfig.autoReassignDays} onChange={e => setMpConfig({ ...mpConfig, autoReassignDays: parseInt(e.target.value) })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Validade PIX (Dias)</label>
+                      <input type="number" value={mpConfig.pixExpirationDays} onChange={e => setMpConfig({ ...mpConfig, pixExpirationDays: parseInt(e.target.value) })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1 italic">O PIX gerado terá validade de X dias. Após X dias de atraso, a venda é reatribuída.</p>
+                </div>
+
+                <div className="space-y-6">
+                  <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest border-b pb-2 flex items-center gap-2"><FileSpreadsheet size={18} /> Google Sheets (AppSheet)</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">ID da Planilha</label>
+                      <input type="text" value={mpConfig.googleSheetId} onChange={e => setMpConfig({ ...mpConfig, googleSheetId: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" placeholder="1abc123..." />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Google API Key</label>
+                      <input type="password" value={mpConfig.googleApiKey} onChange={e => setMpConfig({ ...mpConfig, googleApiKey: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" placeholder="AIza..." />
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1 italic">O sistema importará linhas onde a coluna 'Condicao' seja 'crediario'.</p>
+                </div>
+              </div>
+
+              <div className="mt-12 flex justify-between items-center">
+                <button onClick={handleTriggerDailyAutomations} className="flex items-center gap-2 bg-orange-100 text-orange-600 px-6 py-4 rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-orange-200 transition-all active:scale-95">
+                  <RefreshCw size={18} /> Disparar Automáticos de Hoje
+                </button>
+                <button onClick={handleSaveConfig} className="bg-blue-600 text-white px-10 py-4 rounded-2xl font-black uppercase text-sm tracking-widest hover:bg-blue-700 shadow-xl transition-all active:scale-95">Salvar Configurações</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {isAddSaleModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"><div className="bg-white rounded-3xl w-full max-w-4xl p-8 shadow-2xl scale-in-center overflow-y-auto max-h-[90vh]"><div className="flex justify-between items-center mb-6"><h3 className="text-xl font-black uppercase tracking-tight">Nova Venda (Ficha)</h3><button onClick={() => setIsAddSaleModalOpen(false)}><X size={24} className="text-slate-400" /></button></div><div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8"><div className="md:col-span-2"><div className="flex items-end gap-2"><div className="flex-1"><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Cliente</label><select value={newSale.clientId} onChange={(e) => setNewSale({ ...newSale, clientId: e.target.value })} className="w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 p-2.5 bg-gray-50 outline-none"><option value="">Selecione...</option>{clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div><button onClick={() => setIsAddClientModalOpen(true)} className="p-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 active:scale-95"><Plus size={24} /></button></div></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Entrada (PGL)</label><input type="number" value={newSale.downPayment} onChange={(e) => setNewSale({ ...newSale, downPayment: e.target.value })} placeholder="R$ 0,00" className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500" /></div><div className="md:col-span-2"><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Descrição do Serviço/Objeto</label><input type="text" value={newSale.description} onChange={(e) => setNewSale({ ...newSale, description: e.target.value })} placeholder="Ex: Móveis" className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500" /></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Total da Venda</label><input type="number" value={newSale.totalAmount} onChange={(e) => setNewSale({ ...newSale, totalAmount: e.target.value })} placeholder="R$ 0,00" className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500" /></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Data 1º Vencimento</label><input type="date" value={newSale.firstDueDate} onChange={(e) => setNewSale({ ...newSale, firstDueDate: e.target.value })} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500 font-bold" /></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Parcelas</label><input type="number" value={newSale.installmentsCount} onChange={(e) => setNewSale({ ...newSale, installmentsCount: e.target.value })} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500" /></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Cobrador</label><select value={newSale.collectorId} onChange={(e) => setNewSale({ ...newSale, collectorId: e.target.value })} disabled={role === Role.COLLECTOR} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500">{collectors.filter(c => c.active !== false).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Entregador</label><select value={newSale.deliveryPersonId} onChange={(e) => setNewSale({ ...newSale, deliveryPersonId: e.target.value })} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500"><option value="">Selecione...</option>{collectors.filter(c => (c.role === Role.DELIVERY || c.role === Role.MASTER) && c.active !== false).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div></div><button onClick={handleSaveSale} className="w-full py-4 bg-blue-600 text-white font-black uppercase text-sm tracking-widest rounded-2xl active:scale-95 transition-all shadow-lg">Confirmar Lançamento</button></div></div>
+        )}
+
+        {activeTab === 'movements' && (
+          <div className="space-y-6">
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col gap-6 print:hidden">
+              <div className="flex flex-col md:flex-row md:items-end gap-6">
+                <div className="flex-1 space-y-6">
+                  <div className="flex flex-col gap-2"><label className="text-xs font-black text-slate-400 uppercase tracking-widest">Tipo de Relatório</label><div className="flex bg-slate-100 p-1 rounded-2xl w-full max-w-md"><button onClick={() => setMovementsFilter({ ...movementsFilter, type: 'RECEIVED' })} className={`flex-1 px-4 py-3 rounded-xl text-sm font-black transition-all flex items-center justify-center gap-2 ${movementsFilter.type === 'RECEIVED' ? 'bg-white text-blue-600 shadow-lg' : 'text-slate-400'}`}><TrendingUp size={18} /> RECEBIDOS</button><button onClick={() => setMovementsFilter({ ...movementsFilter, type: 'OVERDUE' })} className={`flex-1 px-4 py-3 rounded-xl text-sm font-black transition-all flex items-center justify-center gap-2 ${movementsFilter.type === 'OVERDUE' ? 'bg-white text-red-600 shadow-lg' : 'text-slate-400'}`}><AlertCircle size={18} /> ATRASADOS</button></div></div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-1">De</label><input type="date" value={movementsFilter.fromDate} onChange={(e) => setMovementsFilter({ ...movementsFilter, fromDate: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500" /></div>
+                    <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Até</label><input type="date" value={movementsFilter.toDate} onChange={(e) => setMovementsFilter({ ...movementsFilter, toDate: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500" /></div>
+                    {role === Role.MASTER && (<div><label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Filtrar Cobrador</label><select value={movementsFilter.collectorId} onChange={(e) => setMovementsFilter({ ...movementsFilter, collectorId: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold">{role === Role.MASTER && <option value="ALL">Todos os Cobradores</option>}{collectors.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>)}
+                    <div className="flex items-end"><button onClick={() => window.print()} className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white font-black text-sm uppercase py-3.5 rounded-xl hover:bg-blue-700 transition-all active:scale-95 shadow-lg"><Printer size={18} /> Gerar PDF / Imprimir</button></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="hidden print:block mb-8 border-b-2 border-slate-900 pb-4">
+              <h1 className="text-3xl font-black uppercase tracking-tighter">Credi Fácil - Relatório Financeiro</h1>
+              <div className="mt-4 grid grid-cols-2 gap-8 text-sm uppercase">
+                <div>
+                  <p><strong>Tipo:</strong> {movementsFilter.type === 'RECEIVED' ? 'Movimentações de Recebimento' : 'Relatório de Atrasados'}</p>
+                  <p><strong>Período:</strong> {formatDate(movementsFilter.fromDate)} até {formatDate(movementsFilter.toDate)}</p>
+                </div>
+                <div className="text-right">
+                  <p><strong>Data de Emissão:</strong> {new Date().toLocaleDateString('pt-BR')} às {new Date().toLocaleTimeString('pt-BR')}</p>
+                  <p><strong>Gerado por:</strong> {currentUser?.name}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-3xl shadow-xl border border-slate-100 overflow-hidden print:shadow-none print:border-2 print:border-black print:rounded-none">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead className="bg-slate-50 border-b border-slate-100 print:bg-slate-100 print:border-black">
+                    <tr>
+                      <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest print:text-black">Data</th>
+                      <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest print:text-black">Tipo</th>
+                      <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest print:text-black">Cliente</th>
+                      <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest print:text-black text-right">Valor</th>
+                      <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right print:hidden">Visualizar</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50 print:divide-black">
+                    {filteredMovements.length > 0 ? filteredMovements.map((item, idx) => (
+                      <tr key={idx} className="hover:bg-slate-50/50">
+                        <td className="px-6 py-5 text-sm font-bold text-slate-600 print:text-black">{formatDate(item.dueDate)}</td>
+                        <td className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase print:text-black">{item.typeLabel}</td>
+                        <td className="px-6 py-5 text-sm font-black text-slate-800 uppercase cursor-pointer hover:text-blue-600 transition-colors print:text-black" onClick={() => setSelectedClientForDetails(item.client)}>{item.client?.name}</td>
+                        <td className="px-6 py-5 text-right font-black tracking-tighter text-lg print:text-black">{formatCurrency(item.displayValue)}</td>
+                        <td className="px-6 py-5 text-right print:hidden">
+                          <button onClick={() => setSelectedSaleForView(item.sale)} className="p-3 text-slate-300 hover:text-blue-600 hover:bg-blue-50 rounded-2xl"><Eye size={20} /></button>
+                        </td>
+                      </tr>
+                    )) : (
+                      <tr><td colSpan={5} className="px-6 py-20 text-center text-slate-300 italic uppercase font-black">Nenhum registro encontrado no período</td></tr>
+                    )}
+                  </tbody>
+                  {filteredMovements.length > 0 && (
+                    <tfoot className="bg-slate-900 text-white print:bg-black print:text-white">
+                      <tr>
+                        <td colSpan={3} className="px-6 py-6 text-sm font-black uppercase text-right opacity-70 print:opacity-100">Total Acumulado:</td>
+                        <td className="px-6 py-6 text-right text-2xl font-black">{formatCurrency(filteredMovements.reduce((s, i) => s + i.displayValue, 0))}</td>
+                        <td className="print:hidden"></td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            </div>
+            <div className="hidden print:block mt-12 pt-8 border-t border-slate-200 text-center text-[10px] uppercase font-bold text-slate-400">
+              Relatório Gerencial • Credi Fácil • Sistema de Gestão de Cobranças
+            </div>
+          </div>
+        )}
+
+        {role === Role.MASTER && activeTab === 'commissions' && (
+          <div className="space-y-6">
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col gap-6 print:hidden">
+              <div className="flex flex-col md:flex-row md:items-end gap-6">
+                <div className="flex-1 space-y-6">
+                  <div className="flex flex-col gap-2">
+                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Relatório de Comissões</label>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-1">De</label><input type="date" value={commissionFilter.fromDate} onChange={(e) => setCommissionFilter({ ...commissionFilter, fromDate: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500" /></div>
+                    <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Até</label><input type="date" value={commissionFilter.toDate} onChange={(e) => setCommissionFilter({ ...commissionFilter, toDate: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500" /></div>
+                    {role === Role.MASTER && (<div><label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Filtrar Cobrador</label><select value={commissionFilter.collectorId} onChange={(e) => setCommissionFilter({ ...commissionFilter, collectorId: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold">{role === Role.MASTER && <option value="ALL">Todos os Cobradores</option>}{collectors.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>)}
+                    <div className="flex items-end"><button onClick={() => window.print()} className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white font-black text-sm uppercase py-3.5 rounded-xl hover:bg-blue-700 transition-all active:scale-95 shadow-lg"><Printer size={18} /> Gerar PDF / Imprimir</button></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="hidden print:block mb-8 border-b-2 border-slate-900 pb-4">
+              <h1 className="text-3xl font-black uppercase tracking-tighter">Credi Fácil - Relatório de Comissões</h1>
+              <div className="mt-4 grid grid-cols-2 gap-8 text-sm uppercase">
+                <div>
+                  <p><strong>Período:</strong> {formatDate(commissionFilter.fromDate)} até {formatDate(commissionFilter.toDate)}</p>
+                </div>
+                <div className="text-right">
+                  <p><strong>Data de Emissão:</strong> {new Date().toLocaleDateString('pt-BR')} às {new Date().toLocaleTimeString('pt-BR')}</p>
+                  <p><strong>Gerado por:</strong> {currentUser?.name}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-3xl shadow-xl border border-slate-100 overflow-hidden print:shadow-none print:border-2 print:border-black print:rounded-none">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead className="bg-slate-50 border-b border-slate-100 print:bg-slate-100 print:border-black">
+                    <tr>
+                      <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest print:text-black">Data</th>
+                      <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest print:text-black">Cobrador</th>
+                      <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest print:text-black">Tipo</th>
+                      <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest print:text-black">Cliente</th>
+                      <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest print:text-black text-right">Base</th>
+                      <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest print:text-black text-right">Taxa</th>
+                      <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest print:text-black text-right">Comissão</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50 print:divide-black">
+                    {filteredCommissions.length > 0 ? filteredCommissions.map((item, idx) => (
+                      <tr key={idx} className="hover:bg-slate-50/50">
+                        <td className="px-6 py-5 text-sm font-bold text-slate-600 print:text-black">{formatDate(item.date)}</td>
+                        <td className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase print:text-black">{item.collectorName}</td>
+                        <td className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase print:text-black">{item.type}</td>
+                        <td className="px-6 py-5 text-sm font-black text-slate-800 uppercase print:text-black">{item.clientName}</td>
+                        <td className="px-6 py-5 text-right font-bold print:text-black">{formatCurrency(item.baseValue)}</td>
+                        <td className="px-6 py-5 text-right font-bold print:text-black">{item.rate}%</td>
+                        <td className="px-6 py-5 text-right font-black tracking-tighter text-lg text-blue-600 print:text-black">{formatCurrency(item.commission)}</td>
+                      </tr>
+                    )) : (
+                      <tr><td colSpan={7} className="px-6 py-20 text-center text-slate-300 italic uppercase font-black">Nenhum registro encontrado no período</td></tr>
+                    )}
+                  </tbody>
+                  {filteredCommissions.length > 0 && (
+                    <tfoot className="bg-slate-900 text-white print:bg-black print:text-white">
+                      <tr>
+                        <td colSpan={6} className="px-6 py-6 text-sm font-black uppercase text-right opacity-70 print:opacity-100">Total Comissões:</td>
+                        <td className="px-6 py-6 text-right text-2xl font-black">{formatCurrency(filteredCommissions.reduce((s, i) => s + i.commission, 0))}</td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {role === Role.MASTER && activeTab === 'reports' && (
+          <div className="space-y-8 animate-in fade-in duration-500">
+            <div className="bg-white p-8 rounded-[32px] shadow-sm border border-slate-100 space-y-8">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+                <div>
+                  <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Relatórios Financeiros</h2>
+                  <p className="text-sm text-slate-400 font-bold uppercase tracking-widest">Previsibilidade e Fluxo de Caixa</p>
+                </div>
+                <div className="flex bg-slate-100 p-1.5 rounded-2xl">
+                  {['DAILY', 'WEEKLY', 'MONTHLY'].map(p => (
+                    <button
+                      key={p}
+                      onClick={() => setFinancialReportFilter({ ...financialReportFilter, period: p as any })}
+                      className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${financialReportFilter.period === p ? 'bg-white text-blue-600 shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}
+                    >
+                      {p === 'DAILY' ? 'Diário' : p === 'WEEKLY' ? 'Semanal' : 'Mensal'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Data Inicial</label>
+                  <input
+                    type="date"
+                    value={financialReportFilter.startDate}
+                    onChange={e => setFinancialReportFilter({ ...financialReportFilter, startDate: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Data Final</label>
+                  <input
+                    type="date"
+                    value={financialReportFilter.endDate}
+                    onChange={e => setFinancialReportFilter({ ...financialReportFilter, endDate: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
+                  />
+                </div>
+                <div className="flex items-end">
+                  <button onClick={() => window.print()} className="w-full py-4 bg-slate-900 text-white font-black uppercase text-xs tracking-widest rounded-2xl flex items-center justify-center gap-3 hover:bg-black transition-all active:scale-95 shadow-xl shadow-slate-200">
+                    <Printer size={18} /> Exportar Relatório
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="bg-white p-8 rounded-[32px] shadow-sm border border-slate-100 flex items-center gap-6">
+                <div className="bg-emerald-100 p-5 rounded-2xl text-emerald-600"><TrendingUp size={28} /></div>
+                <div>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Fluxo Real (Recebido)</p>
+                  <p className="text-3xl font-black text-slate-900 tracking-tighter">{formatCurrency(financialReportData.reduce((s, i) => s + i.received, 0))}</p>
+                </div>
+              </div>
+              <div className="bg-white p-8 rounded-[32px] shadow-sm border border-slate-100 flex items-center gap-6">
+                <div className="bg-blue-100 p-5 rounded-2xl text-blue-600"><CalendarClock size={28} /></div>
+                <div>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Previsibilidade (Pendente)</p>
+                  <p className="text-3xl font-black text-slate-900 tracking-tighter">{formatCurrency(financialReportData.reduce((s, i) => s + i.projected, 0))}</p>
+                </div>
+              </div>
+              <div className="bg-slate-900 p-8 rounded-[32px] shadow-2xl flex items-center gap-6">
+                <div className="bg-white/10 p-5 rounded-2xl text-white"><DollarSign size={28} /></div>
+                <div>
+                  <p className="text-[10px] font-black text-white/50 uppercase tracking-widest mb-1">Total Esperado</p>
+                  <p className="text-3xl font-black text-white tracking-tighter">{formatCurrency(financialReportData.reduce((s, i) => s + i.total, 0))}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100">
+                <div className="flex justify-between items-center mb-8">
+                  <h3 className="text-lg font-black uppercase tracking-tight text-slate-900">Fluxo de Caixa vs Previsão</h3>
+                  <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-emerald-500"></div><span className="text-[10px] font-black text-slate-400 uppercase">Real</span></div>
+                    <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-blue-500"></div><span className="text-[10px] font-black text-slate-400 uppercase">Previsto</span></div>
+                  </div>
+                </div>
+                <div className="h-[350px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={financialReportData}>
+                      <defs>
+                        <linearGradient id="colorReceived" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                        </linearGradient>
+                        <linearGradient id="colorProjected" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                      <XAxis
+                        dataKey="date"
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fontSize: 10, fontWeight: 900, fill: '#94a3b8' }}
+                        dy={10}
+                      />
+                      <YAxis
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fontSize: 10, fontWeight: 900, fill: '#94a3b8' }}
+                        tickFormatter={(v) => `R$ ${v}`}
+                      />
+                      <Tooltip
+                        contentStyle={{ borderRadius: '20px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)', padding: '20px' }}
+                        formatter={(v: number) => [formatCurrency(v), '']}
+                      />
+                      <Area type="monotone" dataKey="received" stroke="#10b981" strokeWidth={4} fillOpacity={1} fill="url(#colorReceived)" />
+                      <Area type="monotone" dataKey="projected" stroke="#3b82f6" strokeWidth={4} fillOpacity={1} fill="url(#colorProjected)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100">
+                <h3 className="text-lg font-black uppercase tracking-tight text-slate-900 mb-8">Detalhamento por Período</h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="border-b border-slate-100">
+                        <th className="pb-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Período</th>
+                        <th className="pb-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Real (Entrada)</th>
+                        <th className="pb-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Previsto</th>
+                        <th className="pb-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {financialReportData.map((item, idx) => (
+                        <tr key={idx} className="group hover:bg-slate-50 transition-all">
+                          <td className="py-4 text-xs font-black text-slate-600 uppercase">{item.date}</td>
+                          <td className="py-4 text-right text-sm font-black text-emerald-600">{formatCurrency(item.received)}</td>
+                          <td className="py-4 text-right text-sm font-black text-blue-600">{formatCurrency(item.projected)}</td>
+                          <td className="py-4 text-right text-sm font-black text-slate-900">{formatCurrency(item.total)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8">
+                <div>
+                  <h3 className="text-lg font-black uppercase tracking-tight text-slate-900">Listagem de Lançamentos</h3>
+                  <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Detalhamento individual das parcelas no período</p>
+                </div>
+                <div className="relative w-full md:w-96">
+                  <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Buscar por cliente ou ficha..."
+                    value={financialSearch}
+                    onChange={e => setFinancialSearch(e.target.value)}
+                    className="w-full pl-12 pr-4 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
+                  />
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="border-b border-slate-100">
+                      <th className="pb-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Vencimento</th>
+                      <th className="pb-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Cliente</th>
+                      <th className="pb-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Ficha</th>
+                      <th className="pb-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Valor</th>
+                      <th className="pb-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Recebido</th>
+                      <th className="pb-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {filteredFinancialTransactions.map((inst, idx) => (
+                      <tr key={idx} className="hover:bg-slate-50 transition-all">
+                        <td className="py-4 text-xs font-bold text-slate-600">{formatDate(inst.dueDate)}</td>
+                        <td className="py-4 text-sm font-black text-slate-800 uppercase">{inst.client?.name}</td>
+                        <td className="py-4 text-xs font-bold text-slate-400">#{inst.sale.id} (P{inst.number})</td>
+                        <td className="py-4 text-right text-sm font-black text-slate-900">{formatCurrency(inst.amount + (inst.manualAdjustment || 0))}</td>
+                        <td className="py-4 text-right text-sm font-black text-emerald-600">{formatCurrency(inst.paidAmount)}</td>
+                        <td className="py-4 text-center">
+                          <span className={`text-[8px] font-black px-2 py-1 rounded-lg uppercase tracking-widest ${inst.status === 'PAID' ? 'bg-green-100 text-green-600' : inst.status === 'PENDING' ? 'bg-blue-100 text-blue-600' : 'bg-orange-100 text-orange-600'}`}>
+                            {inst.status === 'PAID' ? 'Pago' : inst.status === 'PENDING' ? 'Pendente' : 'Reagendado'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                    {filteredFinancialTransactions.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="py-20 text-center text-slate-300 italic uppercase font-black">Nenhum lançamento encontrado para os filtros aplicados</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {isAddCollectorModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"><div className="bg-white rounded-3xl w-full max-w-md p-8 shadow-2xl scale-in-center"><div className="flex justify-between items-center mb-6"><h3 className="text-xl font-black uppercase tracking-tight">{editingCollectorId ? 'Editar Cobrador' : 'Novo Cobrador'}</h3><button onClick={() => { setIsAddCollectorModalOpen(false); setEditingCollectorId(null); }}><X size={24} className="text-slate-400" /></button></div><div className="space-y-4 mb-8"><div><label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Nome Completo</label><input type="text" value={newCollector.name} onChange={e => setNewCollector({ ...newCollector, name: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" /></div><div><label className="block text-[10px] font-black text-slate-400 uppercase mb-1">WhatsApp</label><input type="text" value={newCollector.phone} onChange={e => setNewCollector({ ...newCollector, phone: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" /></div><div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-100"><div><label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Usuário</label><input type="text" value={newCollector.username} onChange={e => setNewCollector({ ...newCollector, username: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" /></div><div><label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Senha</label><input type="text" value={newCollector.password} onChange={e => setNewCollector({ ...newCollector, password: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" /></div></div><div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-100">
+            <div>
+              <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Comissão Venda (%)</label>
+              <input type="number" value={newCollector.saleCommissionRate} onChange={e => setNewCollector({ ...newCollector, saleCommissionRate: parseFloat(e.target.value) })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Comissão Cobrança (%)</label>
+              <input type="number" value={newCollector.collectionCommissionRate} onChange={e => setNewCollector({ ...newCollector, collectionCommissionRate: parseFloat(e.target.value) })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+          </div>
+            <div className="flex items-center gap-3 pt-4 border-t border-slate-100"><input type="checkbox" id="col-active" checked={newCollector.active} onChange={e => setNewCollector({ ...newCollector, active: e.target.checked })} className="w-5 h-5 rounded accent-blue-600" /><label htmlFor="col-active" className="text-sm font-black text-slate-600 uppercase tracking-widest cursor-pointer">Cobrador Ativo</label></div></div><button onClick={handleSaveCollector} className="w-full py-4 bg-blue-600 text-white font-black uppercase text-sm tracking-widest rounded-2xl active:scale-95 transition-all shadow-lg">{editingCollectorId ? 'Salvar Alterações' : 'Salvar Cobrador'}</button></div></div>
+        )}
+
+        {isAddClientModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-3xl w-full max-w-2xl p-8 shadow-2xl scale-in-center overflow-y-auto max-h-[90vh]">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-black uppercase tracking-tight">Novo Cliente</h3>
+                <button onClick={() => setIsAddClientModalOpen(false)}><X size={24} className="text-slate-400" /></button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+                <div className="md:col-span-2">
+                  <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Nome Completo</label>
+                  <input type="text" value={newClient.name} onChange={e => setNewClient({ ...newClient, name: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Telefone</label>
+                  <input type="text" value={newClient.phone} onChange={e => setNewClient({ ...newClient, phone: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">CPF</label>
+                  <input type="text" value={newClient.cpf} onChange={e => setNewClient({ ...newClient, cpf: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">RG</label>
+                  <input type="text" value={newClient.rg} onChange={e => setNewClient({ ...newClient, rg: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Bairro</label>
+                  <input type="text" value={newClient.neighborhood} onChange={e => setNewClient({ ...newClient, neighborhood: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Endereço</label>
+                  <input type="text" value={newClient.address} onChange={e => setNewClient({ ...newClient, address: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Cidade</label>
+                  <input type="text" value={newClient.city} onChange={e => setNewClient({ ...newClient, city: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Indicação (Cliente)</label>
+                  <select value={newClient.referralClientId} onChange={e => setNewClient({ ...newClient, referralClientId: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500">
+                    <option value="">Nenhuma</option>
+                    {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+
+                <div className="md:col-span-2 grid grid-cols-2 gap-4 mt-4">
+                  <div className="space-y-2">
+                    <label className="block text-[10px] font-black text-slate-400 uppercase">RG (Imagem)</label>
+                    <input type="text" placeholder="URL da Imagem" value={newClient.rgImage} onChange={e => setNewClient({ ...newClient, rgImage: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2 text-xs" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="block text-[10px] font-black text-slate-400 uppercase">CPF (Imagem)</label>
+                    <input type="text" placeholder="URL da Imagem" value={newClient.cpfImage} onChange={e => setNewClient({ ...newClient, cpfImage: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2 text-xs" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="block text-[10px] font-black text-slate-400 uppercase">Conta de Luz</label>
+                    <input type="text" placeholder="URL da Imagem" value={newClient.utilityBillImage} onChange={e => setNewClient({ ...newClient, utilityBillImage: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2 text-xs" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="block text-[10px] font-black text-slate-400 uppercase">Foto da Casa</label>
+                    <input type="text" placeholder="URL da Imagem" value={newClient.housePhoto} onChange={e => setNewClient({ ...newClient, housePhoto: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2 text-xs" />
+                  </div>
+                </div>
+              </div>
+              <button onClick={handleSaveClient} className="w-full py-4 bg-blue-600 text-white font-black uppercase text-sm tracking-widest rounded-2xl active:scale-95 transition-all shadow-lg">Cadastrar Cliente</button>
+            </div>
+          </div>
+        )}
+
+        {isPaymentModalOpen && selectedInstallment && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-md p-4 print:hidden">
+            <div className="bg-white rounded-[40px] w-full max-w-md p-10 shadow-2xl scale-in-center overflow-hidden relative">
+              <h3 className="text-3xl font-black text-slate-900 mb-2 uppercase tracking-tighter">Recebimento</h3>
+              <p className="text-slate-500 mb-8 text-sm font-medium">Cliente: <span className="font-black text-blue-600">{selectedInstallment?.client?.name}</span></p>
+
+              <div className="space-y-6 mb-10">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-slate-50 p-4 rounded-3xl border border-slate-100 text-center">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Valor Parcela</span>
+                    <p className="text-lg font-black text-slate-700">{formatCurrency(selectedInstallment.amount + (selectedInstallment.manualAdjustment || 0))}</p>
+                  </div>
+                  <div className="bg-red-50 p-4 rounded-3xl border border-red-100 text-center">
+                    <span className="text-[10px] font-black text-red-400 uppercase tracking-widest">Saldo Devedor</span>
+                    <p className="text-lg font-black text-red-600">{formatCurrency(getSaleOutstandingBalance(selectedInstallment.sale))}</p>
+                  </div>
+                </div>
+
+                <div className="bg-blue-600 p-8 rounded-[32px] shadow-2xl">
+                  <label className="block text-[10px] font-black text-blue-200 uppercase mb-4 tracking-[0.2em]">Dinheiro (R$)</label>
+                  <input type="number" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} className="w-full text-5xl font-black bg-transparent border-none outline-none text-white placeholder:text-blue-400" placeholder="0,00" autoFocus />
+                </div>
+
+                <div className="bg-slate-50 p-6 rounded-3xl border border-slate-200 space-y-4">
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">Acréscimo Manual (Multa/Juros)</label>
+                  <div className="flex gap-2">
+                    <div className="flex-1 relative">
+                      <input
+                        type="number"
+                        value={adjustmentValue}
+                        onChange={e => setAdjustmentValue(e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded-xl p-3 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-600"
+                        placeholder="Valor"
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">{adjustmentType === 'FIXED' ? 'R$' : '%'}</span>
+                    </div>
+                    <div className="flex bg-slate-200 p-1 rounded-xl">
+                      <button onClick={() => setAdjustmentType('FIXED')} className={`px-3 py-1 rounded-lg text-[10px] font-black transition-all ${adjustmentType === 'FIXED' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>R$</button>
+                      <button onClick={() => setAdjustmentType('PERCENT')} className={`px-3 py-1 rounded-lg text-[10px] font-black transition-all ${adjustmentType === 'PERCENT' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>%</button>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 flex items-center gap-2"><ArrowRight size={12} /> Próxima Cobrança (Data)</label>
+                  <input type="date" value={nextVisitDate} onChange={e => setNextVisitDate(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-black outline-none focus:ring-2 focus:ring-blue-600" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <button onClick={() => { setIsPaymentModalOpen(false); setSelectedInstallment(null); setPaymentAmount(''); setAdjustmentValue(''); setNextVisitDate(''); }} className="py-5 bg-slate-100 text-slate-500 font-black uppercase text-xs tracking-widest rounded-2xl transition-all">Cancelar</button>
+                <button onClick={handlePayment} className="py-5 bg-blue-600 text-white font-black uppercase text-xs tracking-widest rounded-2xl hover:bg-blue-700 shadow-xl active:scale-95 transition-all">Confirmar</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {selectedSaleForView && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/80 backdrop-blur-sm p-2 sm:p-4 print:relative print:bg-white print:p-0">
+            <div className="bg-slate-100 rounded-[40px] w-full max-w-2xl max-h-[95vh] flex flex-col overflow-hidden shadow-2xl scale-in-center print:shadow-none print:bg-white print:max-h-none">
+              <div className="bg-white px-8 py-6 border-b border-slate-200 flex justify-between items-center print:hidden"><div><h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter">Ficha do Cliente</h3><p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Nº {selectedSaleForView.id}</p></div><button onClick={() => setSelectedSaleForView(null)}><X size={28} className="text-slate-400" /></button></div>
+              <div className="flex-1 overflow-y-auto p-4 sm:p-10 bg-slate-200/30 print:bg-white print:p-0"><div className="flex justify-center print:block"><ReceiptForm saleId={selectedSaleForView.id} clientName={clients.find(c => c.id === selectedSaleForView.clientId)?.name.toUpperCase() || 'CLIENTE'} date={selectedSaleForView.date} items={selectedSaleForView.items} totalAmount={selectedSaleForView.totalAmount} downPayment={selectedSaleForView.downPayment} installments={selectedSaleForView.installments} /></div></div>
+              <div className="bg-white px-8 py-6 border-t border-slate-200 flex justify-end gap-4 print:hidden shrink-0"><button onClick={() => window.print()} className="px-8 py-3.5 bg-slate-900 text-white font-black uppercase text-xs tracking-widest rounded-2xl flex items-center gap-2"><Printer size={18} /> Imprimir</button><button onClick={() => setSelectedSaleForView(null)} className="px-8 py-3.5 bg-slate-100 text-slate-500 font-black uppercase text-xs tracking-widest rounded-2xl border border-slate-200">Fechar</button></div>
+            </div>
+          </div>
+        )}
+
+        {selectedClientForDetails && <ClientDetailsModal client={selectedClientForDetails} />}
+      </Layout>
+      {printData && (
+        <ThermalReceipt
+          sale={printData.sale}
+          client={printData.client}
+          installment={printData.installment}
+          type={printData.type}
+        />
+      )}
+    </>
+  );
+};
+
+export default App;
