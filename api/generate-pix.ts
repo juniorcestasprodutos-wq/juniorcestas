@@ -59,6 +59,7 @@ export default async function handler(req: any, res: any) {
             payment_method_id: 'pix',
             date_of_expiration: expirationDate.toISOString(),
             external_reference: installmentId,
+            notification_url: `https://juniorcestas.vercel.app/api/webhooks/mercadopago`,
             payer: {
                 email: `${clientPhone.replace(/\D/g, '') || 'venda'}@cliente.com`,
                 first_name: clientName,
