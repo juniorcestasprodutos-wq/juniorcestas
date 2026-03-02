@@ -12,6 +12,10 @@ export default async function handler(req: any, res: any) {
 
     const { amount, description, tokenType, clientName, clientPhone, installmentId } = req.body;
 
+    if (amount < 1) {
+        return res.status(400).json({ error: "O valor mínimo para pagamento via PIX no Mercado Pago é R$ 1,00" });
+    }
+
     try {
         // Get config from Supabase
         const { data: config, error: configError } = await supabase
