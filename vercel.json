@@ -5,12 +5,16 @@
             "destination": "/api/generate-pix"
         },
         {
-            "source": "/api/whatsapp/send",
+            "source": "/api/send-whatsapp",
             "destination": "/api/send-whatsapp"
         },
         {
             "source": "/api/google-sheets/sync",
             "destination": "/api/sync-sheets"
+        },
+        {
+            "source": "/api/webhooks/mercadopago",
+            "destination": "/api/webhooks/mercadopago"
         },
         {
             "source": "/(.*)",
