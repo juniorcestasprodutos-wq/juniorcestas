@@ -157,7 +157,7 @@ export const dataService = {
             unit_price: item.unitPrice,
             total: item.total
         }));
-        const { error: itemsError } = await supabase.from('sale_items').upsert(itemsPayload);
+        const { error: itemsError } = await supabase.from('sale_items').insert(itemsPayload);
         if (itemsError) throw itemsError;
 
         // Save installments

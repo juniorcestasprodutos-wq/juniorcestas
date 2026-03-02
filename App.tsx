@@ -692,7 +692,8 @@ const App: React.FC = () => {
       }
 
       const installmentValue = (total - down) / count;
-      const saleId = (sales.length + 1001).toString();
+      const nextId = sales.length > 0 ? Math.max(...sales.map(s => parseInt(s.id) || 0)) + 1 : 1001;
+      const saleId = nextId.toString();
       const firstDue = new Date(newSale.firstDueDate);
       const installments: Installment[] = Array.from({ length: count }, (_, i) => {
         const d = new Date(firstDue);
@@ -730,7 +731,7 @@ const App: React.FC = () => {
       setSales(updatedSales);
 
       alert(`Venda lançada com sucesso! Direcionada para: ${tokenType}`);
-      setNewSale(prev => ({ ...prev, totalAmount: '', downPayment: '', description: '', collectorId: 'loja', deliveryPersonId: '' }));
+      setNewSale(prev => ({ ...prev, totalAmount: '', downPayment: '', description: '', collectorId: (collectors[0]?.id || 'loja'), deliveryPersonId: '' }));
       setIsAddSaleModalOpen(false);
     } catch (err) {
       console.error("Error saving sale", err);
