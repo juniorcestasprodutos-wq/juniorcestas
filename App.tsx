@@ -762,6 +762,7 @@ const App: React.FC = () => {
         tokenType: routeItem.sale.tokenType,
         clientName: routeItem.client.name,
         clientPhone: routeItem.client.phone,
+        clientCpf: routeItem.client.cpf,
         installmentId: routeItem.id
       });
 

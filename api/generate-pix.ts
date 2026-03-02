@@ -10,7 +10,7 @@ export default async function handler(req: any, res: any) {
         return res.status(405).json({ error: 'Method not allowed' });
     }
 
-    const { amount, description, tokenType, clientName, clientPhone, installmentId } = req.body;
+    const { amount, description, tokenType, clientName, clientPhone, clientCpf, installmentId } = req.body;
 
     if (amount < 1) {
         return res.status(400).json({ error: "O valor mínimo para pagamento via PIX no Mercado Pago é R$ 1,00" });
@@ -58,9 +58,14 @@ export default async function handler(req: any, res: any) {
             description: description,
             payment_method_id: 'pix',
             date_of_expiration: expirationDate.toISOString(),
+            external_reference: installmentId,
             payer: {
-                email: 'test@test.com',
+                email: `${clientPhone.replace(/\D/g, '') || 'venda'}@cliente.com`,
                 first_name: clientName,
+                identification: clientCpf ? {
+                    type: 'CPF',
+                    number: clientCpf.replace(/\D/g, '')
+                } : undefined
             }
         }, {
             headers: {
