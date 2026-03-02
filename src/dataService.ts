@@ -80,7 +80,7 @@ export const dataService = {
             cpf_image: client.cpfImage,
             utility_bill_image: client.utilityBillImage,
             house_photo: client.housePhoto,
-            referral_client_id: client.referralClientId,
+            referral_client_id: client.referralClientId || null,
             lat: client.coordinates?.lat,
             lng: client.coordinates?.lng
         };
@@ -106,7 +106,7 @@ export const dataService = {
         return data.map(s => ({
             id: s.id,
             clientId: s.client_id,
-            collectorId: s.collector_id,
+            collectorId: s.collector_id || 'loja',
             deliveryPersonId: s.delivery_person_id,
             date: s.date,
             totalAmount: Number(s.total_amount),
@@ -138,8 +138,8 @@ export const dataService = {
         const { error: saleError } = await supabase.from('sales').upsert({
             id: sale.id,
             client_id: sale.clientId,
-            collector_id: sale.collectorId,
-            delivery_person_id: sale.deliveryPersonId,
+            collector_id: (sale.collectorId === 'loja' || !sale.collectorId) ? null : sale.collectorId,
+            delivery_person_id: sale.deliveryPersonId || null,
             date: sale.date,
             total_amount: sale.totalAmount,
             down_payment: sale.downPayment,

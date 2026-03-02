@@ -241,8 +241,9 @@ const App: React.FC = () => {
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
+    const masterUser = collectors.find(c => c.username === 'master' && c.password === '@admin2026');
     if (loginForm.username === 'master' && loginForm.password === '@admin2026') {
-      const user: User = { id: 'master', name: 'Administrador', phone: '', role: Role.MASTER, active: true };
+      const user: User = masterUser || { id: 'master', name: 'Administrador', phone: '', role: Role.MASTER, active: true };
       setCurrentUser(user);
       localStorage.setItem('credi_facil_user', JSON.stringify(user));
       return;
