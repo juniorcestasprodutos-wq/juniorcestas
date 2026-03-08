@@ -128,6 +128,7 @@ export const dataService = {
                 amount: Number(inst.amount),
                 paidAmount: Number(inst.paid_amount),
                 status: inst.status as any,
+                paymentDate: inst.payment_date,
                 pixSent: inst.pix_sent,
                 manualAdjustment: Number(inst.manual_adjustment)
             }))
@@ -169,6 +170,7 @@ export const dataService = {
             amount: inst.amount,
             paid_amount: inst.paidAmount,
             status: inst.status,
+            payment_date: inst.paymentDate,
             pix_sent: inst.pixSent,
             manual_adjustment: inst.manualAdjustment
         }));

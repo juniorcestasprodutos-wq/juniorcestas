@@ -53,6 +53,7 @@ export interface Installment {
   amount: number;
   paidAmount: number;
   status: 'PENDING' | 'PAID' | 'PARTIAL' | 'RESCHEDULED';
+  paymentDate?: string;
   pixSent?: boolean;
   manualAdjustment?: number;
 }

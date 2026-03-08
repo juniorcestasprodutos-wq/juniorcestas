@@ -26,15 +26,23 @@ export default async function handler(req: any, res: any) {
         const cleanedPhone = phone.replace(/\D/g, '');
         const formattedPhone = cleanedPhone.length <= 11 ? `55${cleanedPhone}` : cleanedPhone;
 
+        const payload: any = {
+            messaging_product: "whatsapp",
+            recipient_type: "individual",
+            to: formattedPhone,
+        };
+
+        if (req.body.template) {
+            payload.type = "template";
+            payload.template = req.body.template;
+        } else {
+            payload.type = "text";
+            payload.text = { body: message };
+        }
+
         const response = await axios.post(
             `https://graph.facebook.com/v18.0/${config.whatsapp_phone_number_id}/messages`,
-            {
-                messaging_product: "whatsapp",
-                recipient_type: "individual",
-                to: formattedPhone,
-                type: "text",
-                text: { body: message }
-            },
+            payload,
             {
                 headers: {
                     'Authorization': `Bearer ${config.whatsapp_api_token}`,

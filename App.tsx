@@ -591,6 +591,7 @@ const App: React.FC = () => {
             paidAmount: newPaidTotal,
             status: (isFullPayment ? 'PAID' : 'PARTIAL') as any,
             dueDate: (!isFullPayment && nextVisitDate) ? nextVisitDate : inst.dueDate,
+            paymentDate: isFullPayment ? new Date().toISOString().split('T')[0] : inst.paymentDate,
             manualAdjustment: (inst.manualAdjustment || 0) + finalAdjustment
           };
         }
@@ -633,7 +634,7 @@ const App: React.FC = () => {
   const handleSendWhatsApp = async (phone: string, message: string) => {
     if (mpConfig.whatsappApiToken && mpConfig.whatsappPhoneNumberId) {
       try {
-        await axios.post('/api/whatsapp/send', { phone, message });
+        await axios.post('/api/send-whatsapp', { phone, message });
         return;
       } catch (e) {
         console.error("Erro ao enviar via API, tentando link direto...", e);
@@ -1095,7 +1096,7 @@ const App: React.FC = () => {
           </div>
         </div>
         <div className="bg-white rounded-3xl shadow-xl border border-slate-100 overflow-hidden">
-          <div className="overflow-x-auto"><table className="w-full text-left"><thead className="bg-slate-50 border-b border-slate-100"><tr><th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Vencimento</th><th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Cliente</th><th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Venda</th><th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Valor</th><th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Cobrador</th><th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th><th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Ações</th></tr></thead><tbody className="divide-y divide-slate-50">{filtered.map((inst) => (<tr key={inst.id} className="hover:bg-slate-50/50"><td className="px-6 py-5 text-sm font-bold text-slate-600">{formatDate(inst.dueDate)}</td><td className="px-6 py-5 text-sm font-black text-slate-800 uppercase">{inst.client?.name}</td><td className="px-6 py-5 text-sm font-bold text-slate-400">#{inst.sale.id} (P{inst.number})</td><td className="px-6 py-5 text-sm font-black text-blue-600">{formatCurrency(inst.amount)}</td><td className="px-6 py-5 text-[10px] font-bold text-slate-400 uppercase">{collectors.find(c => c.id === inst.sale.collectorId)?.name}</td><td className="px-6 py-5"><span className={`text-[8px] font-black px-2 py-1 rounded-lg uppercase tracking-widest ${inst.status === 'PAID' ? 'bg-green-100 text-green-600' : inst.dueDate < today ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>{inst.status === 'PAID' ? 'Pago' : inst.dueDate < today ? 'Atrasado' : 'Pendente'}</span></td><td className="px-6 py-5 text-right flex justify-end gap-2"><button onClick={() => setSelectedSaleForView(inst.sale)} className="p-2 text-slate-300 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"><Eye size={18} /></button><button onClick={() => { setSelectedInstallment(inst); setIsPaymentModalOpen(true); }} className="p-2 text-slate-300 hover:text-green-600 hover:bg-green-50 rounded-lg transition-all"><DollarSign size={18} /></button></td></tr>))}</tbody></table></div>
+          <div className="overflow-x-auto"><table className="w-full text-left"><thead className="bg-slate-50 border-b border-slate-100"><tr><th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Vencimento</th><th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Data Pagto</th><th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Cliente</th><th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Venda</th><th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Valor</th><th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Cobrador</th><th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th><th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Ações</th></tr></thead><tbody className="divide-y divide-slate-50">{filtered.map((inst) => (<tr key={inst.id} className="hover:bg-slate-50/50"><td className="px-6 py-5 text-sm font-bold text-slate-600">{formatDate(inst.dueDate)}</td><td className="px-6 py-5 text-sm font-bold text-slate-600">{inst.status === 'PAID' && inst.paymentDate ? formatDate(inst.paymentDate) : '-'}</td><td className="px-6 py-5 text-sm font-black text-slate-800 uppercase">{inst.client?.name}</td><td className="px-6 py-5 text-sm font-bold text-slate-400">#{inst.sale.id} (P{inst.number})</td><td className="px-6 py-5 text-sm font-black text-blue-600">{formatCurrency(inst.amount)}</td><td className="px-6 py-5 text-[10px] font-bold text-slate-400 uppercase">{collectors.find(c => c.id === inst.sale.collectorId)?.name}</td><td className="px-6 py-5"><span className={`text-[8px] font-black px-2 py-1 rounded-lg uppercase tracking-widest ${inst.status === 'PAID' ? 'bg-green-100 text-green-600' : inst.dueDate < today ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>{inst.status === 'PAID' ? 'Pago' : inst.dueDate < today ? 'Atrasado' : 'Pendente'}</span></td><td className="px-6 py-5 text-right flex justify-end gap-2">{inst.status !== 'PAID' && (<button onClick={() => handleGeneratePix(inst)} disabled={isGeneratingPix === inst.id} className={`p-2 rounded-lg transition-all ${isGeneratingPix === inst.id ? 'text-slate-300 bg-slate-50' : 'text-slate-300 hover:text-blue-600 hover:bg-blue-50'}`} title="Copiar PIX e Enviar Whats">{isGeneratingPix === inst.id ? <RefreshCw size={18} className="animate-spin" /> : <QrCode size={18} />}</button>)}<button onClick={() => setSelectedSaleForView(inst.sale)} className="p-2 text-slate-300 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"><Eye size={18} /></button><button onClick={() => { setSelectedInstallment(inst); setIsPaymentModalOpen(true); }} className="p-2 text-slate-300 hover:text-green-600 hover:bg-green-50 rounded-lg transition-all"><DollarSign size={18} /></button></td></tr>))}</tbody></table></div>
         </div>
       </div>
     );
@@ -1433,7 +1434,35 @@ const App: React.FC = () => {
                 </div>
 
                 <div className="space-y-6">
-                  <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest border-b pb-2 flex items-center gap-2"><Send size={18} /> WhatsApp (N8N Webhook)</h3>
+                  <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest border-b pb-2 flex items-center gap-2"><Send size={18} /> WhatsApp Business API (Oficial)</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">API Token (Permanente)</label>
+                      <input type="password" value={mpConfig.whatsappApiToken} onChange={e => setMpConfig({ ...mpConfig, whatsappApiToken: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" placeholder="EAAB..." />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">ID do Número de Telefone</label>
+                      <input type="text" value={mpConfig.whatsappPhoneNumberId} onChange={e => setMpConfig({ ...mpConfig, whatsappPhoneNumberId: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" placeholder="109..." />
+                    </div>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      if (!mpConfig.whatsappApiToken || !mpConfig.whatsappPhoneNumberId) return alert("Configure os campos acima primeiro.");
+                      try {
+                        await axios.post('/api/send-whatsapp', { phone: '5500000000000', message: 'Teste de conexão Credi Fácil' });
+                        alert("Solicitação enviada! Verifique os logs se necessário.");
+                      } catch (e: any) {
+                        alert("Erro no teste: " + (e.response?.data?.error || e.message));
+                      }
+                    }}
+                    className="text-[10px] font-black uppercase tracking-widest text-blue-600 hover:bg-blue-50 px-4 py-2 rounded-lg transition-all"
+                  >
+                    Testar Conexão
+                  </button>
+                </div>
+
+                <div className="space-y-6">
+                  <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest border-b pb-2 flex items-center gap-2"><Send size={18} /> Automação Externa (n8n/Webhook)</h3>
                   <div>
                     <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">URL do Webhook N8N</label>
                     <input type="text" value={mpConfig.n8nWebhookUrl} onChange={e => setMpConfig({ ...mpConfig, n8nWebhookUrl: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" placeholder="https://n8n.seu-servidor.com/webhook/..." />
