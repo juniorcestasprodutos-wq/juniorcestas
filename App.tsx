@@ -866,6 +866,7 @@ const App: React.FC = () => {
           tokenType: item.sale.tokenType,
           clientName: item.client.name,
           clientPhone: item.client.phone,
+          clientCpf: item.client.cpf,
           installmentId: item.id
         });
 

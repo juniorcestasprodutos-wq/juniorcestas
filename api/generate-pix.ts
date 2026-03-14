@@ -53,22 +53,34 @@ export default async function handler(req: any, res: any) {
         const expirationDate = new Date();
         expirationDate.setDate(expirationDate.getDate() + (config.pix_expiration_days || 5));
 
-        const response = await axios.post('https://api.mercadopago.com/v1/payments', {
+        const sanitizedPhone = (clientPhone || '').replace(/\D/g, '');
+        const sanitizedCpf = (clientCpf || '').replace(/\D/g, '');
+
+        const payerEmail = `${sanitizedPhone || 'venda'}@cliente.com`;
+
+        const payer: any = {
+            email: payerEmail,
+            first_name: clientName || 'Cliente',
+        };
+
+        if (sanitizedCpf && sanitizedCpf.length >= 11) {
+            payer.identification = {
+                type: 'CPF',
+                number: sanitizedCpf
+            };
+        }
+
+        const mpPayload = {
             transaction_amount: amount,
             description: description,
             payment_method_id: 'pix',
             date_of_expiration: expirationDate.toISOString(),
             external_reference: installmentId,
             notification_url: `https://juniorcestas.vercel.app/api/webhooks/mercadopago`,
-            payer: {
-                email: `${clientPhone.replace(/\D/g, '') || 'venda'}@cliente.com`,
-                first_name: clientName,
-                identification: clientCpf ? {
-                    type: 'CPF',
-                    number: clientCpf.replace(/\D/g, '')
-                } : undefined
-            }
-        }, {
+            payer
+        };
+
+        const response = await axios.post('https://api.mercadopago.com/v1/payments', mpPayload, {
             headers: {
                 'Authorization': `Bearer ${token}`,
                 'X-Idempotency-Key': `pix-${installmentId}-${Date.now()}`
