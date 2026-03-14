@@ -2,7 +2,8 @@
 export enum Role {
   MASTER = 'MASTER',
   COLLECTOR = 'COLLECTOR',
-  DELIVERY = 'DELIVERY'
+  DELIVERY = 'DELIVERY',
+  ASSEMBLER = 'ASSEMBLER'
 }
 
 export interface User {
@@ -56,6 +57,7 @@ export interface Installment {
   paymentDate?: string;
   pixSent?: boolean;
   manualAdjustment?: number;
+  confirmedByMaster?: boolean;
 }
 
 export interface PaymentProviderConfig {
@@ -87,4 +89,18 @@ export interface Sale {
   installments: Installment[];
   tokenType: 'PF' | 'PJ' | 'INFINITY';
   status: 'PENDING' | 'DELIVERED' | 'CANCELLED';
+  isAssembly?: boolean;
+  assemblerId?: string;
+  assemblyValue?: number;
+  observations?: string;
+}
+
+export interface Task {
+  id: string;
+  title: string;
+  description: string;
+  userId: string;
+  createdAt: string;
+  status: 'PENDING' | 'COMPLETED';
+  relatedId?: string; // e.g., saleId
 }

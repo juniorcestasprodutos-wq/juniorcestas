@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient';
-import { User, Client, Sale, Installment, Role, PaymentProviderConfig } from '../types';
+import { User, Client, Sale, Installment, Role, PaymentProviderConfig, Task } from '../types';
 
 export const dataService = {
     // Users
@@ -114,6 +114,10 @@ export const dataService = {
             installmentsCount: s.installments_count,
             tokenType: s.token_type as any,
             status: s.status as any,
+            isAssembly: s.is_assembly,
+            assemblerId: s.assembler_id,
+            assemblyValue: Number(s.assembly_value),
+            observations: s.observations,
             items: s.sale_items.map((si: any) => ({
                 quantity: si.quantity,
                 description: si.description,
@@ -130,7 +134,8 @@ export const dataService = {
                 status: inst.status as any,
                 paymentDate: inst.payment_date,
                 pixSent: inst.pix_sent,
-                manualAdjustment: Number(inst.manual_adjustment)
+                manualAdjustment: Number(inst.manual_adjustment),
+                confirmedByMaster: inst.confirmed_by_master
             }))
         }));
     },
@@ -146,7 +151,11 @@ export const dataService = {
             down_payment: sale.downPayment,
             installments_count: sale.installmentsCount,
             token_type: sale.tokenType,
-            status: sale.status
+            status: sale.status,
+            is_assembly: sale.isAssembly,
+            assembler_id: sale.assemblerId,
+            assembly_value: sale.assemblyValue,
+            observations: sale.observations
         });
         if (saleError) throw saleError;
 
@@ -172,7 +181,8 @@ export const dataService = {
             status: inst.status,
             payment_date: inst.paymentDate,
             pix_sent: inst.pixSent,
-            manual_adjustment: inst.manualAdjustment
+            manual_adjustment: inst.manualAdjustment,
+            confirmed_by_master: inst.confirmedByMaster
         }));
         const { error: instError } = await supabase.from('installments').upsert(instPayload);
         if (instError) throw instError;
@@ -215,6 +225,47 @@ export const dataService = {
             whatsapp_api_token: config.whatsappApiToken,
             whatsapp_phone_number_id: config.whatsappPhoneNumberId
         }).eq('id', 'default');
+        if (error) throw error;
+    },
+
+    // Tasks
+    async getTasks(): Promise<Task[]> {
+        const { data, error } = await supabase
+            .from('tasks')
+            .select('*')
+            .order('created_at', { ascending: false });
+        if (error) throw error;
+        return data.map(t => ({
+            id: t.id,
+            title: t.title,
+            description: t.description,
+            userId: t.user_id,
+            createdAt: t.created_at,
+            status: t.status as any,
+            relatedId: t.related_id
+        }));
+    },
+
+    async saveTask(task: Partial<Task>): Promise<void> {
+        const payload = {
+            title: task.title,
+            description: task.description,
+            user_id: task.userId,
+            status: task.status,
+            related_id: task.relatedId
+        };
+
+        if (task.id) {
+            const { error } = await supabase.from('tasks').update(payload).eq('id', task.id);
+            if (error) throw error;
+        } else {
+            const { error } = await supabase.from('tasks').insert(payload);
+            if (error) throw error;
+        }
+    },
+
+    async deleteTask(taskId: string): Promise<void> {
+        const { error } = await supabase.from('tasks').delete().eq('id', taskId);
         if (error) throw error;
     }
 };

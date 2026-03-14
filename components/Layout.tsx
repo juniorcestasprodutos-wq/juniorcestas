@@ -49,11 +49,17 @@ const Layout: React.FC<LayoutProps> = ({ children, activeRole, currentUser, acti
     { id: 'commissions', label: 'Comissões', icon: <DollarSign size={20} /> },
     { id: 'future', label: 'Futuras', icon: <CalendarClock size={20} /> },
     { id: 'reports', label: 'Financeiro', icon: <BarChart3 size={20} /> },
+    { id: 'tasks', label: 'Painel de Tarefas', icon: <Layers size={20} /> },
     { id: 'settings', label: 'Configurações', icon: <Settings size={20} /> },
   ] : activeRole === Role.DELIVERY ? [
     { id: 'delivery', label: 'Minhas Entregas', icon: <Truck size={20} /> },
+    { id: 'tasks', label: 'Minhas Tarefas', icon: <Layers size={20} /> },
+  ] : activeRole === Role.ASSEMBLER ? [
+    { id: 'assembler', label: 'Minhas Montagens', icon: <Truck size={20} /> },
+    { id: 'tasks', label: 'Minhas Tarefas', icon: <Layers size={20} /> },
   ] : [
     { id: 'route', label: 'Rota de Hoje', icon: <Route size={20} /> },
+    { id: 'tasks', label: 'Minhas Tarefas', icon: <Layers size={20} /> },
     { id: 'future', label: 'Futuras', icon: <CalendarClock size={20} /> },
     { id: 'sales', label: 'Vendas', icon: <ReceiptText size={20} /> },
     { id: 'movements', label: 'Movimentações', icon: <FileSearch size={20} /> },
@@ -143,6 +149,8 @@ const Layout: React.FC<LayoutProps> = ({ children, activeRole, currentUser, acti
               {activeTab === 'reports' && 'Relatórios Financeiros'}
               {activeTab === 'commissions' && 'Relatório de Comissões'}
               {activeTab === 'route' && 'Rota de Hoje'}
+              {activeTab === 'tasks' && 'Painel de Tarefas'}
+              {activeTab === 'assembler' && 'Minhas Montagens'}
               {activeTab === 'future' && 'Cobranças Futuras'}
               {activeTab === 'movements' && 'Extrato de Movimentações'}
             </h1>

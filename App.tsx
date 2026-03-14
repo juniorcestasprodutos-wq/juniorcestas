@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { Role, User, Client, Sale, Installment, SaleItem } from './types';
+import { Role, User, Client, Sale, Installment, SaleItem, Task } from './types';
 import { initialSales, mockCollectors, mockClients } from './mockData';
 import Layout from './components/Layout';
 import ReceiptForm from './components/ReceiptForm';
@@ -48,15 +48,17 @@ const App: React.FC = () => {
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [u, c, s, config] = await Promise.all([
+        const [u, c, s, t, config] = await Promise.all([
           dataService.getUsers(),
           dataService.getClients(),
           dataService.getSales(),
+          dataService.getTasks(),
           dataService.getConfig()
         ]);
         setCollectors(u);
         setClients(c);
         setSales(s);
+        setTasks(t);
         setMpConfig(config);
       } catch (err) {
         console.error("Error loading data from Supabase", err);
@@ -109,8 +111,14 @@ const App: React.FC = () => {
     downPayment: '',
     installmentsCount: '10',
     description: '',
-    firstDueDate: new Date(new Date().setDate(new Date().getDate() + 30)).toISOString().split('T')[0]
+    firstDueDate: new Date(new Date().setDate(new Date().getDate() + 30)).toISOString().split('T')[0],
+    isAssembly: false,
+    assemblerId: '',
+    observations: ''
   });
+
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [isTaskPanelOpen, setIsTaskPanelOpen] = useState(false);
 
   const [masterInstallmentsFilter, setMasterInstallmentsFilter] = useState({
     status: 'ALL' as 'ALL' | 'PENDING' | 'OVERDUE' | 'PAID' | 'TODAY',
@@ -724,15 +732,41 @@ const App: React.FC = () => {
         installments,
         tokenType,
         deliveryPersonId: newSale.deliveryPersonId || undefined,
-        status: 'PENDING'
+        status: 'PENDING',
+        isAssembly: newSale.isAssembly,
+        assemblerId: newSale.assemblerId || undefined,
+        observations: newSale.observations
       };
 
       await dataService.saveSale(saleData);
+
+      if (newSale.observations) {
+        await dataService.saveTask({
+          title: `Tarefa da Venda #${saleId}`,
+          description: newSale.observations,
+          userId: currentUser?.id,
+          status: 'PENDING',
+          relatedId: saleId
+        });
+        const updatedTasks = await dataService.getTasks();
+        setTasks(updatedTasks);
+      }
+
       const updatedSales = await dataService.getSales();
       setSales(updatedSales);
 
       alert(`Venda lançada com sucesso! Direcionada para: ${tokenType}`);
-      setNewSale(prev => ({ ...prev, totalAmount: '', downPayment: '', description: '', collectorId: (collectors[0]?.id || 'loja'), deliveryPersonId: '' }));
+      setNewSale(prev => ({ 
+        ...prev, 
+        totalAmount: '', 
+        downPayment: '', 
+        description: '', 
+        collectorId: (collectors[0]?.id || 'loja'), 
+        deliveryPersonId: '',
+        isAssembly: false,
+        assemblerId: '',
+        observations: ''
+      }));
       setIsAddSaleModalOpen(false);
     } catch (err) {
       console.error("Error saving sale", err);
@@ -1164,8 +1198,13 @@ const App: React.FC = () => {
       <div className="space-y-8">
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <div className="bg-blue-600 text-white p-3 rounded-xl shadow-lg"><RouteIcon size={24} /></div>
-            <div><h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">{title}</h2><p className="text-sm font-bold text-slate-400">{items.length} clientes na lista</p></div>
+            <div className={`p-3 rounded-xl shadow-lg ${title === 'Cobranças/Coletas' ? 'bg-orange-600 text-white' : 'bg-blue-600 text-white'}`}>
+              {title === 'Cobranças/Coletas' ? <Contact size={24} /> : <RouteIcon size={24} />}
+            </div>
+            <div>
+              <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">{title}</h2>
+              <p className="text-sm font-bold text-slate-400">{items.length} clientes na lista</p>
+            </div>
           </div>
         </div>
 
@@ -1216,6 +1255,89 @@ const App: React.FC = () => {
             <h3 className="text-lg font-black uppercase tracking-widest">Lista Vazia</h3>
           </div>
         )}
+      </div>
+    );
+  };
+
+  const TaskPanel = () => {
+    const handleToggleTask = async (task: Task) => {
+      try {
+        const updatedTask = { ...task, status: (task.status === 'PENDING' ? 'COMPLETED' : 'PENDING') as any };
+        await dataService.saveTask(updatedTask);
+        const updatedTasks = await dataService.getTasks();
+        setTasks(updatedTasks);
+      } catch (err) {
+        console.error("Error toggling task", err);
+      }
+    };
+
+    const handleDeleteTask = async (taskId: string) => {
+      if (!confirm("Deseja excluir esta tarefa?")) return;
+      try {
+        await dataService.deleteTask(taskId);
+        const updatedTasks = await dataService.getTasks();
+        setTasks(updatedTasks);
+      } catch (err) {
+        console.error("Error deleting task", err);
+      }
+    };
+
+    return (
+      <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden flex flex-col">
+          <div className="p-6 border-b border-slate-100 bg-slate-50">
+            <h3 className="text-sm font-black uppercase tracking-widest text-slate-400">Tarefas Ativas</h3>
+          </div>
+          <div className="flex-1 overflow-y-auto p-6 space-y-4">
+            {tasks.length > 0 ? tasks.map(task => (
+              <div key={task.id} className={`p-4 rounded-2xl border transition-all ${task.status === 'COMPLETED' ? 'bg-slate-50 border-slate-100 opacity-60' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className="flex justify-between items-start gap-4">
+                  <div className="flex-1">
+                    <h4 className={`text-sm font-black uppercase tracking-tight ${task.status === 'COMPLETED' ? 'line-through text-slate-400' : 'text-slate-800'}`}>{task.title}</h4>
+                    <p className={`text-xs mt-1 ${task.status === 'COMPLETED' ? 'text-slate-400' : 'text-slate-500'}`}>{task.description}</p>
+                    <div className="flex items-center gap-3 mt-3">
+                      <span className="text-[8px] font-black px-2 py-0.5 rounded bg-slate-100 text-slate-400 uppercase">{formatDate(task.createdAt)}</span>
+                      {task.relatedId && <span className="text-[8px] font-black px-2 py-0.5 rounded bg-blue-50 text-blue-600 uppercase">Venda #{task.relatedId}</span>}
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => handleToggleTask(task)} className={`p-2 rounded-xl transition-all ${task.status === 'COMPLETED' ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-400 hover:text-green-600 hover:bg-green-50'}`}>
+                      <CheckCircle size={18} />
+                    </button>
+                    <button onClick={() => handleDeleteTask(task.id)} className="p-2 bg-slate-100 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all">
+                      <X size={18} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )) : (
+              <div className="flex flex-col items-center justify-center py-20 text-slate-300 opacity-50">
+                <Layers size={48} className="mb-4" />
+                <p className="text-sm font-black uppercase tracking-widest">Nenhuma tarefa ativa</p>
+              </div>
+            )}
+          </div>
+          <div className="p-6 border-t border-slate-100 bg-slate-50">
+            <button 
+              onClick={() => {
+                const title = prompt("Título da Tarefa:");
+                const desc = prompt("Descrição:");
+                if (title) {
+                  const payload: Partial<Task> = { 
+                    title, 
+                    description: desc || '', 
+                    userId: currentUser?.id, 
+                    status: 'PENDING' 
+                  };
+                  dataService.saveTask(payload)
+                    .then(() => dataService.getTasks())
+                    .then(t => setTasks(t));
+                }
+              }}
+              className="w-full py-4 bg-slate-900 text-white font-black uppercase text-xs tracking-widest rounded-2xl"
+            >
+              Nova Tarefa Avulsa
+            </button>
+          </div>
       </div>
     );
   };
@@ -1511,9 +1633,73 @@ const App: React.FC = () => {
         )}
 
         {isAddSaleModalOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"><div className="bg-white rounded-3xl w-full max-w-4xl p-8 shadow-2xl scale-in-center overflow-y-auto max-h-[90vh]"><div className="flex justify-between items-center mb-6"><h3 className="text-xl font-black uppercase tracking-tight">Nova Venda (Ficha)</h3><button onClick={() => setIsAddSaleModalOpen(false)}><X size={24} className="text-slate-400" /></button></div><div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8"><div className="md:col-span-2"><div className="flex items-end gap-2"><div className="flex-1"><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Cliente</label><select value={newSale.clientId} onChange={(e) => setNewSale({ ...newSale, clientId: e.target.value })} className="w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 p-2.5 bg-gray-50 outline-none"><option value="">Selecione...</option>{clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div><button onClick={() => setIsAddClientModalOpen(true)} className="p-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 active:scale-95"><Plus size={24} /></button></div></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Entrada (PGL)</label><input type="number" value={newSale.downPayment} onChange={(e) => setNewSale({ ...newSale, downPayment: e.target.value })} placeholder="R$ 0,00" className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500" /></div><div className="md:col-span-2"><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Descrição do Serviço/Objeto</label><input type="text" value={newSale.description} onChange={(e) => setNewSale({ ...newSale, description: e.target.value })} placeholder="Ex: Móveis" className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500" /></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Total da Venda</label><input type="number" value={newSale.totalAmount} onChange={(e) => setNewSale({ ...newSale, totalAmount: e.target.value })} placeholder="R$ 0,00" className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500" /></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Data 1º Vencimento</label><input type="date" value={newSale.firstDueDate} onChange={(e) => setNewSale({ ...newSale, firstDueDate: e.target.value })} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500 font-bold" /></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Parcelas</label><input type="number" value={newSale.installmentsCount} onChange={(e) => setNewSale({ ...newSale, installmentsCount: e.target.value })} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500" /></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Cobrador</label><select value={newSale.collectorId} onChange={(e) => setNewSale({ ...newSale, collectorId: e.target.value })} disabled={role === Role.COLLECTOR} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500">{collectors.filter(c => c.active !== false).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Entregador</label><select value={newSale.deliveryPersonId} onChange={(e) => setNewSale({ ...newSale, deliveryPersonId: e.target.value })} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500"><option value="">Selecione...</option>{collectors.filter(c => (c.role === Role.DELIVERY || c.role === Role.MASTER) && c.active !== false).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div></div><button onClick={handleSaveSale} className="w-full py-4 bg-blue-600 text-white font-black uppercase text-sm tracking-widest rounded-2xl active:scale-95 transition-all shadow-lg">Confirmar Lançamento</button></div></div>
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"><div className="bg-white rounded-3xl w-full max-w-4xl p-8 shadow-2xl scale-in-center overflow-y-auto max-h-[90vh]"><div className="flex justify-between items-center mb-6"><h3 className="text-xl font-black uppercase tracking-tight">Nova Venda (Ficha)</h3><button onClick={() => setIsAddSaleModalOpen(false)}><X size={24} className="text-slate-400" /></button></div><div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8"><div className="md:col-span-2"><div className="flex items-end gap-2"><div className="flex-1"><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Cliente</label><select value={newSale.clientId} onChange={(e) => setNewSale({ ...newSale, clientId: e.target.value })} className="w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 p-2.5 bg-gray-50 outline-none"><option value="">Selecione...</option>{clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div><button onClick={() => setIsAddClientModalOpen(true)} className="p-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 active:scale-95"><Plus size={24} /></button></div></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Entrada (PGL)</label><input type="number" value={newSale.downPayment} onChange={(e) => setNewSale({ ...newSale, downPayment: e.target.value })} placeholder="R$ 0,00" className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500" /></div><div className="md:col-span-2"><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Descrição do Serviço/Objeto</label><input type="text" value={newSale.description} onChange={(e) => setNewSale({ ...newSale, description: e.target.value })} placeholder="Ex: Móveis" className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500" /></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Total da Venda</label><input type="number" value={newSale.totalAmount} onChange={(e) => setNewSale({ ...newSale, totalAmount: e.target.value })} placeholder="R$ 0,00" className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500" /></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Data 1º Vencimento</label><input type="date" value={newSale.firstDueDate} onChange={(e) => setNewSale({ ...newSale, firstDueDate: e.target.value })} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500 font-bold" /></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Parcelas</label><input type="number" value={newSale.installmentsCount} onChange={(e) => setNewSale({ ...newSale, installmentsCount: e.target.value })} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500" /></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Cobrador</label><select value={newSale.collectorId} onChange={(e) => setNewSale({ ...newSale, collectorId: e.target.value })} disabled={role === Role.COLLECTOR} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500">{collectors.filter(c => c.active !== false).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Entregador</label><select value={newSale.deliveryPersonId} onChange={(e) => setNewSale({ ...newSale, deliveryPersonId: e.target.value })} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500"><option value="">Selecione...</option>{collectors.filter(c => (c.role === Role.DELIVERY || c.role === Role.MASTER) && c.active !== false).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+              <div className="md:col-span-1 flex items-center gap-2 pt-6">
+                <input type="checkbox" id="is-assembly" checked={newSale.isAssembly} onChange={e => setNewSale({ ...newSale, isAssembly: e.target.checked })} className="w-5 h-5 rounded accent-blue-600" />
+                <label htmlFor="is-assembly" className="text-xs font-black text-slate-600 uppercase tracking-widest cursor-pointer">Montagem?</label>
+              </div>
+              {newSale.isAssembly && (
+                <div>
+                  <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Montador</label>
+                  <select value={newSale.assemblerId} onChange={(e) => setNewSale({ ...newSale, assemblerId: e.target.value })} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500">
+                    <option value="">Selecione...</option>
+                    {collectors.filter(c => (c.role === Role.ASSEMBLER || c.role === Role.MASTER) && c.active !== false).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+              )}
+              <div className="md:col-span-3">
+                <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Observações (Cria tarefa)</label>
+                <textarea value={newSale.observations} onChange={e => setNewSale({ ...newSale, observations: e.target.value })} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500 h-20" placeholder="Digite observações que serão convertidas em tarefas..."></textarea>
+              </div>
+            </div><button onClick={handleSaveSale} className="w-full py-4 bg-blue-600 text-white font-black uppercase text-sm tracking-widest rounded-2xl active:scale-95 transition-all shadow-lg">Confirmar Lançamento</button></div></div>
         )}
 
+        {activeTab === 'tasks' && <TaskPanel />}
+
+        {activeTab === 'assembler' && (
+          <div className="space-y-6">
+            <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+              <h2 className="text-xl font-black uppercase tracking-tight text-slate-800">Minhas Montagens</h2>
+              <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Gerencie suas ordens de montagem</p>
+            </div>
+            <div className="grid grid-cols-1 gap-4">
+              {sales.filter(s => s.isAssembly && s.assemblerId === currentUser?.id).map(sale => (
+                <div key={sale.id} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                  <div>
+                    <span className="text-[10px] font-black bg-blue-50 text-blue-600 px-3 py-1 rounded-full uppercase mb-2 inline-block">Venda #{sale.id}</span>
+                    <h3 className="font-black text-slate-800 uppercase tracking-tight">{clients.find(c => c.id === sale.clientId)?.name || 'Cliente'}</h3>
+                    <p className="text-sm text-slate-500">{sale.description}</p>
+                    <p className="text-xs text-slate-400 mt-2 italic">{sale.observations}</p>
+                  </div>
+                  <div className="flex flex-col items-end gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-400 uppercase">Valor da Montagem:</span>
+                      <input 
+                        type="number" 
+                        value={sale.assemblyValue || ''} 
+                        onChange={async (e) => {
+                          const val = Number(e.target.value);
+                          const updatedSale = { ...sale, assemblyValue: val };
+                          await dataService.saveSale(updatedSale);
+                          setSales(await dataService.getSales());
+                        }}
+                        className="w-24 bg-slate-50 border border-slate-200 rounded-xl p-2 outline-none focus:ring-2 focus:ring-blue-500 font-bold text-right"
+                        placeholder="R$ 0,00"
+                      />
+                    </div>
+                    <button className="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:underline px-2 py-1">Ver Detalhes</button>
+                  </div>
+                </div>
+              ))}
+              {sales.filter(s => s.isAssembly && s.assemblerId === currentUser?.id).length === 0 && (
+                <div className="text-center py-20 text-slate-300 opacity-50 bg-white rounded-3xl border border-dashed border-slate-200">
+                  <Truck size={48} className="mx-auto mb-4" />
+                  <p className="font-black uppercase tracking-widest">Nenhuma montagem pendente</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
         {activeTab === 'movements' && (
           <div className="space-y-6">
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col gap-6 print:hidden">
