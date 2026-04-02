@@ -672,15 +672,15 @@ const App: React.FC = () => {
           installmentId: routeItem.id
         });
         
-        if (response.data.qrCode) {
-          pixCode = response.data.qrCode;
+        if (response.data.pixCode) {
+          pixCode = response.data.pixCode;
           // Atualiza o estado global de vendas para refletir o PIX gerado na parcela
           setSales(prev => prev.map(s => {
             if (s.id !== routeItem.sale.id) return s;
             return {
               ...s,
               installments: s.installments.map(i => 
-                i.id === routeItem.id ? { ...i, qrCode: response.data.qrCode, qrCodeBase64: response.data.qrCodeBase64, pixSent: true } : i
+                i.id === routeItem.id ? { ...i, qrCode: response.data.pixCode, qrCodeBase64: response.data.qrCodeBase64, pixSent: true } : i
               )
             };
           }));
