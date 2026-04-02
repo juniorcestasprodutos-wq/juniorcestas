@@ -697,7 +697,7 @@ const App: React.FC = () => {
         pixCode: pixCode, // O backend enviará o segundo balão automaticamente
         template: {
           name: "aviso_de_vencimento",
-          language: { code: "en" },
+          language: { code: "pt_BR" },
           components: [
             {
               type: "body",
@@ -899,19 +899,16 @@ const App: React.FC = () => {
 
   const handleTriggerDailyAutomations = async () => {
     const today = new Date().toISOString().split('T')[0];
-
-    // 1. Today's collections that haven't had PIX sent
-    const todayItems = todayRoute.filter(item => !item.pixSent);
-
-    // 2. Overdue collections (before reassignment threshold) that need daily reminders
+    const todayRouteItems = todayRoute.filter(item => !item.pixSent);
+    
     const overdueItems = [];
     const reassignDays = mpConfig.autoReassignDays || 5;
 
     for (const sale of sales) {
       for (const inst of sale.installments) {
         if (inst.status !== 'PAID' && inst.dueDate < today) {
-          const dueDate = new Date(inst.dueDate);
-          const diffTime = Math.abs(new Date(today).getTime() - dueDate.getTime());
+          const dueDateObj = new Date(inst.dueDate);
+          const diffTime = Math.abs(new Date(today).getTime() - dueDateObj.getTime());
           const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
           if (diffDays < reassignDays) {
@@ -922,42 +919,23 @@ const App: React.FC = () => {
       }
     }
 
-    const allItems = [...todayItems, ...overdueItems];
+    const allItems = [...todayRouteItems, ...overdueItems];
 
     if (allItems.length === 0) return alert("Nenhuma cobrança pendente de automação para hoje.");
 
-    if (!confirm(`Deseja disparar cobranças para ${allItems.length} clientes? (${todayItems.length} de hoje e ${overdueItems.length} atrasados)`)) return;
+    if (!confirm(`Deseja disparar cobranças OFICIAIS (Template) para ${allItems.length} clientes? (${todayRouteItems.length} de hoje e ${overdueItems.length} atrasados)`)) return;
 
     let successCount = 0;
     for (const item of allItems) {
       try {
-        const res = await axios.post('/api/generate-pix', {
-          amount: item.amount - item.paidAmount,
-          description: `Cobrança ${item.dueDate < today ? 'ATRASADA' : ''} P${item.number} - Venda ${item.sale.id}`,
-          tokenType: item.sale.tokenType,
-          clientName: item.client.name,
-          clientPhone: item.client.phone,
-          clientCpf: item.client.cpf,
-          installmentId: item.id
-        });
-
-        const { pixCode } = res.data;
-        const message = `Credi Fácil: Olá ${item.client.name}, lembrete de sua parcela ${item.dueDate < today ? 'ATRASADA ' : ''}vencendo ${item.dueDate === today ? 'HOJE' : formatDate(item.dueDate)}. \n\nCódigo PIX: ${pixCode}\n\nValor: ${formatCurrency(item.amount - item.paidAmount)}`;
-        handleSendWhatsApp(item.client.phone, message);
-
-        setSales(prev => prev.map(s => {
-          if (s.id !== item.sale.id) return s;
-          return {
-            ...s,
-            installments: s.installments.map(i => i.id === item.id ? { ...i, pixSent: true } : i)
-          };
-        }));
+        // Usamos o mesmo fluxo "Oficial" para cada item
+        await handleSendCollectionTemplate(item);
         successCount++;
       } catch (e) {
-        console.error("Error triggering automation for", item.client.name, e);
+        console.error("Error triggering official automation for", item.client?.name, e);
       }
     }
-    alert(`Automação concluída! ${successCount} notificações enviadas.`);
+    alert(`Automação oficial concluída! ${successCount} notificações enviadas.`);
   };
 
   const handleSyncGoogleSheets = async () => {
@@ -1719,8 +1697,8 @@ const App: React.FC = () => {
               </div>
 
               <div className="mt-12 flex justify-between items-center">
-                <button onClick={handleTriggerDailyAutomations} className="flex items-center gap-2 bg-orange-100 text-orange-600 px-6 py-4 rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-orange-200 transition-all active:scale-95">
-                  <RefreshCw size={18} /> Disparar Automáticos de Hoje
+                <button onClick={handleTriggerDailyAutomations} className="flex items-center gap-2 bg-blue-600 text-white px-6 py-4 rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-blue-700 shadow-xl transition-all active:scale-95">
+                  <Zap size={18} /> Disparar Automação Oficial (Templates)
                 </button>
                 <button onClick={handleSaveConfig} className="bg-blue-600 text-white px-10 py-4 rounded-2xl font-black uppercase text-sm tracking-widest hover:bg-blue-700 shadow-xl transition-all active:scale-95">Salvar Configurações</button>
               </div>

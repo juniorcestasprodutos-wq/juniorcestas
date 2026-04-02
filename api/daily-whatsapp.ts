@@ -106,19 +106,32 @@ export default async function handler(req: any, res: any) {
                 }
 
                 if (pixCode) {
-                    const message = `Credi Fácil: Olá ${item.client.name}, lembrete de sua parcela ${item.inst.due_date < today ? 'ATRASADA ' : ''}vencendo ${item.inst.due_date === today ? 'HOJE' : formatDate(item.inst.due_date)}. \n\nCódigo PIX: ${pixCode}\n\nValor: ${formatCurrency(amountDue)}`;
-
                     const cleanedPhone = item.client.phone.replace(/\D/g, '');
                     const formattedPhone = cleanedPhone.length <= 11 ? `55${cleanedPhone}` : cleanedPhone;
 
+                    // 1. Envio do Template Oficial
                     await axios.post(
-                        `https://graph.facebook.com/v18.0/${config.whatsapp_phone_number_id}/messages`,
+                        `https://graph.facebook.com/v22.0/${config.whatsapp_phone_number_id}/messages`,
                         {
                             messaging_product: "whatsapp",
                             recipient_type: "individual",
                             to: formattedPhone,
-                            type: "text",
-                            text: { body: message }
+                            type: "template",
+                            template: {
+                                name: "aviso_de_vencimento",
+                                language: { code: "pt_BR" },
+                                components: [
+                                    {
+                                        type: "body",
+                                        parameters: [
+                                            { type: "text", text: item.client.name || "Cliente" },
+                                            { type: "text", text: item.sale.id.toString() },
+                                            { type: "text", text: amountDue.toFixed(2).replace('.', ',') },
+                                            { type: "text", text: pixCode }
+                                        ]
+                                    }
+                                ]
+                            }
                         },
                         {
                             headers: {
@@ -127,6 +140,24 @@ export default async function handler(req: any, res: any) {
                             }
                         }
                     );
+
+                    // 2. Envio do segundo balão (Código PIX para cópia)
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    await axios.post(
+                        `https://graph.facebook.com/v22.0/${config.whatsapp_phone_number_id}/messages`,
+                        {
+                            messaging_product: "whatsapp",
+                            to: formattedPhone,
+                            type: "text",
+                            text: { body: `*Copia e Cola PIX:* \n\n\`${pixCode}\`` }
+                        },
+                        {
+                            headers: {
+                                'Authorization': `Bearer ${config.whatsapp_api_token}`,
+                                'Content-Type': 'application/json'
+                            }
+                        }
+                    ).catch(err => console.error("Erro no follow-up cron:", err.response?.data || err.message));
 
                     await supabase.from('installments').update({ pix_sent: true }).eq('id', item.inst.id);
                     successCount++;
