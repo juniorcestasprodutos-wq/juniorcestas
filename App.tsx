@@ -663,10 +663,13 @@ const App: React.FC = () => {
       if (!pixCode) {
         setIsGeneratingPix(routeItem.id);
         const response = await axios.post('/api/generate-pix', {
-          saleId: routeItem.sale.id,
-          installmentNumber: routeItem.number,
           amount: routeItem.amount - routeItem.paidAmount,
-          clientName: routeItem.client?.name
+          description: `Parcela ${routeItem.number} - Venda ${routeItem.sale.id}`,
+          tokenType: routeItem.sale.tokenType,
+          clientName: routeItem.client.name,
+          clientPhone: routeItem.client.phone,
+          clientCpf: routeItem.client.cpf,
+          installmentId: routeItem.id
         });
         
         if (response.data.qrCode) {
@@ -677,7 +680,7 @@ const App: React.FC = () => {
             return {
               ...s,
               installments: s.installments.map(i => 
-                i.id === routeItem.id ? { ...r, qrCode: response.data.qrCode, qrCodeBase64: response.data.qrCodeBase64, pixSent: true } : i
+                i.id === routeItem.id ? { ...i, qrCode: response.data.qrCode, qrCodeBase64: response.data.qrCodeBase64, pixSent: true } : i
               )
             };
           }));
