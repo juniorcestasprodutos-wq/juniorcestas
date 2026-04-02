@@ -88,7 +88,11 @@ export default async function handler(req: any, res: any) {
         });
 
         const pixData = response.data.point_of_interaction.transaction_data;
-        res.json({ pixCode: pixData.qr_code, qrCodeBase64: pixData.qr_code_base64 });
+        res.json({ 
+            pixCode: pixData.qr_code, 
+            qrCodeBase64: pixData.qr_code_base64,
+            ticketUrl: pixData.ticket_url 
+        });
 
     } catch (error: any) {
         console.error("PIX Error:", error.response?.data || error.message);

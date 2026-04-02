@@ -681,7 +681,7 @@ const App: React.FC = () => {
             return {
               ...s,
               installments: s.installments.map(i => 
-                i.id === routeItem.id ? { ...i, qrCode: response.data.pixCode, qrCodeBase64: response.data.qrCodeBase64, pixSent: true } : i
+                i.id === routeItem.id ? { ...i, qrCode: response.data.pixCode, qrCodeBase64: response.data.qrCodeBase64, ticketUrl: response.data.ticketUrl, pixSent: true } : i
               )
             };
           }));
@@ -710,6 +710,18 @@ const App: React.FC = () => {
           ]
         }
       });
+
+      // 4. Aguarda 2 segundos e envia o código PIX em um balão separado para facilitar a cópia
+      setTimeout(async () => {
+        try {
+          await axios.post('/api/send-whatsapp', {
+            phone: routeItem.client?.phone,
+            message: `*Copia e Cola PIX:* \n\n\`${pixCode}\``
+          });
+        } catch (e) {
+          console.error("Erro ao enviar balão separado do PIX:", e);
+        }
+      }, 2000);
 
       // 3. Copia para a área de transferência (igual ao botão normal de PIX)
       if (pixCode) {
