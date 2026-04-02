@@ -28,20 +28,18 @@ export default async function handler(req: any, res: any) {
 
         const payload: any = {
             messaging_product: "whatsapp",
-            recipient_type: "individual",
             to: formattedPhone,
+            type: req.body.template ? "template" : "text",
         };
 
         if (req.body.template) {
-            payload.type = "template";
             payload.template = req.body.template;
         } else {
-            payload.type = "text";
             payload.text = { body: message };
         }
 
         const response = await axios.post(
-            `https://graph.facebook.com/v18.0/${config.whatsapp_phone_number_id}/messages`,
+            `https://graph.facebook.com/v22.0/${config.whatsapp_phone_number_id}/messages`,
             payload,
             {
                 headers: {

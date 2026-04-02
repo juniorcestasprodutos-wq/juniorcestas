@@ -719,7 +719,9 @@ const App: React.FC = () => {
       alert(`Cobrança oficial enviada para ${routeItem.client?.name}!`);
     } catch (error: any) {
       console.error("Erro no envio do template:", error);
-      alert("Erro ao enviar cobrança oficial: " + (error.response?.data?.error || error.message));
+      const serverError = error.response?.data?.error || error.message;
+      const details = error.response?.data?.details ? JSON.stringify(error.response.data.details) : "";
+      alert(`Erro ao enviar cobrança oficial: ${serverError} ${details}`);
       setIsGeneratingPix(null);
     }
   };
