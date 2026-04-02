@@ -51,7 +51,8 @@ export default async function handler(req: any, res: any) {
 
         res.json({ status: "ok", data: response.data });
     } catch (error: any) {
-        console.error("WhatsApp Error:", error.response?.data || error.message);
-        res.status(500).json({ error: "Erro ao enviar via WhatsApp API", details: error.response?.data });
+        const errorData = JSON.stringify(error.response?.data || error.message);
+        console.error("WhatsApp Error:", errorData);
+        res.status(500).json({ error: `Erro WhatsApp API: ${errorData}` });
     }
 }
