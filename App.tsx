@@ -710,6 +710,11 @@ const App: React.FC = () => {
         }
       });
 
+      // 3. Copia para a área de transferência (igual ao botão normal de PIX)
+      if (pixCode) {
+        await navigator.clipboard.writeText(pixCode);
+      }
+
       alert(`Cobrança oficial enviada para ${routeItem.client?.name}!`);
     } catch (error: any) {
       console.error("Erro no envio do template:", error);
