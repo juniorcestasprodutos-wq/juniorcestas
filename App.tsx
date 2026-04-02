@@ -712,23 +712,20 @@ const App: React.FC = () => {
       });
 
       // 4. Aguarda 2 segundos e envia o código PIX em um balão separado para facilitar a cópia
+      const phone = routeItem.client?.phone;
       setTimeout(async () => {
         try {
           await axios.post('/api/send-whatsapp', {
-            phone: routeItem.client?.phone,
+            phone: phone,
             message: `*Copia e Cola PIX:* \n\n\`${pixCode}\``
           });
-        } catch (e) {
-          console.error("Erro ao enviar balão separado do PIX:", e);
+          console.log("Segundo balão (PIX) enviado com sucesso!");
+        } catch (e: any) {
+          console.error("Erro ao enviar balão separado do PIX:", e.response?.data || e.message);
         }
       }, 2000);
 
-      // 3. Copia para a área de transferência (igual ao botão normal de PIX)
-      if (pixCode) {
-        await navigator.clipboard.writeText(pixCode);
-      }
-
-      alert(`Cobrança oficial enviada para ${routeItem.client?.name}!`);
+      alert(`Cobrança oficial iniciada para ${routeItem.client?.name}! Verifique o WhatsApp em alguns segundos.`);
     } catch (error: any) {
       console.error("Erro no envio do template:", error);
       const serverError = error.response?.data?.error || error.message;
