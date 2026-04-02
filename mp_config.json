@@ -1,0 +1,15 @@
+{
+  "pfToken": "",
+  "pjToken": "",
+  "pjThreshold": 20000,
+  "infinityPayToken": "",
+  "infinityPayEnabled": false,
+  "allocationMode": "SPLIT_BY_THRESHOLD",
+  "n8nWebhookUrl": "",
+  "autoReassignDays": 5,
+  "pixExpirationDays": 5,
+  "googleSheetId": "",
+  "googleApiKey": "",
+  "whatsappApiToken": "EAAhU6rUw9ZCsBROmy5ATdeJZBmR7hJaaut85t3vuYH88ssNLCm1ZCB4yKpndJXpYgZATi4TGUCu5c0ocZAlGupmnoesZCET4MozZC9p3b34QM86AwwDK20sVs5ZCxVUZBocYjRnpOeLnCIFuZB47CNzQdelvgx26Sfom3nIOBSdf8axpKHM0cjZAyhuip8E8zIFZAXZB57MUZAcGxp8LCxYvPnVQZCRe5XXeXZBfD6vE1idGWgQ5BO49W0yt3oBGS9JpzOlgzWHxPZBcbgI47LesWv1ioRTH1",
+  "whatsappPhoneNumberId": "982380394961987"
+}

@@ -12,7 +12,7 @@ import {
   Printer, AlertCircle, TrendingUp, UserPlus, Phone, Hash,
   CalendarClock, ArrowRight, Route as RouteIcon, Lock, User as UserIcon, Edit2, Power, Contact,
   History, CreditCard, ChevronRight, AlertTriangle, Filter, Settings, RefreshCw, QrCode,
-  FileSpreadsheet, Truck, Check, Layers
+  FileSpreadsheet, Truck, Check, Layers, Zap
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, AreaChart, Area } from 'recharts';
 import axios from 'axios';
@@ -651,6 +651,70 @@ const App: React.FC = () => {
     sendWhatsAppMessage(phone, message);
   };
 
+  const handleSendCollectionTemplate = async (routeItem: any) => {
+    if (!mpConfig.whatsappApiToken || !mpConfig.whatsappPhoneNumberId) {
+      return alert("Configure a API do WhatsApp nas configurações primeiro.");
+    }
+
+    try {
+      let pixCode = routeItem.qrCode;
+
+      // 1. Se não tiver PIX, gera agora
+      if (!pixCode) {
+        setIsGeneratingPix(routeItem.id);
+        const response = await axios.post('/api/generate-pix', {
+          saleId: routeItem.sale.id,
+          installmentNumber: routeItem.number,
+          amount: routeItem.amount - routeItem.paidAmount,
+          clientName: routeItem.client?.name
+        });
+        
+        if (response.data.qrCode) {
+          pixCode = response.data.qrCode;
+          // Atualiza o estado global de vendas para refletir o PIX gerado na parcela
+          setSales(prev => prev.map(s => {
+            if (s.id !== routeItem.sale.id) return s;
+            return {
+              ...s,
+              installments: s.installments.map(i => 
+                i.id === routeItem.id ? { ...r, qrCode: response.data.qrCode, qrCodeBase64: response.data.qrCodeBase64, pixSent: true } : i
+              )
+            };
+          }));
+        } else {
+          throw new Error("Falha ao gerar PIX");
+        }
+        setIsGeneratingPix(null);
+      }
+
+      // 2. Envia o Template
+      await axios.post('/api/send-whatsapp', {
+        phone: routeItem.client?.phone,
+        template: {
+          name: "aviso_de_vencimento",
+          language: { code: "pt_BR" },
+          components: [
+            {
+              type: "body",
+              parameters: [
+                { type: "text", text: routeItem.client?.name || "Cliente" },
+                { type: "text", text: routeItem.sale.id.toString() },
+                { type: "text", text: (routeItem.amount - routeItem.paidAmount).toFixed(2).replace('.', ',') },
+                { type: "text", text: pixCode || "" }
+              ]
+            }
+          ]
+        }
+      });
+
+      alert(`Cobrança oficial enviada para ${routeItem.client?.name}!`);
+    } catch (error: any) {
+      console.error("Erro no envio do template:", error);
+      alert("Erro ao enviar cobrança oficial: " + (error.response?.data?.error || error.message));
+      setIsGeneratingPix(null);
+    }
+  };
+
   const handleReschedule = async (inst: Installment, client: Client) => {
     const newDate = prompt("Escolha a nova data de vencimento (AAAA-MM-DD):", new Date().toISOString().split('T')[0]);
     if (!newDate) return;
@@ -1244,7 +1308,23 @@ const App: React.FC = () => {
                     </button>
                     <button onClick={() => { setSelectedInstallment(routeItem); setIsPaymentModalOpen(true); const nextDate = new Date(routeItem.dueDate); nextDate.setDate(nextDate.getDate() + 30); setNextVisitDate(nextDate.toISOString().split('T')[0]); }} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-8 py-4 bg-blue-600 text-white font-black uppercase text-xs tracking-widest rounded-2xl hover:bg-blue-700 shadow-xl transition-all"><DollarSign size={20} /> Receber</button>
                     <button onClick={() => handleReschedule(routeItem, routeItem.client!)} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-8 py-4 bg-white text-orange-600 border-2 border-orange-100 font-black uppercase text-xs tracking-widest rounded-2xl hover:bg-orange-50 transition-all"><Calendar size={20} /> Reagendar</button>
-                    <button onClick={() => handleSendWhatsApp(routeItem.client?.phone!, `Credi Fácil: Olá ${routeItem.client?.name}, estou chegando para sua parcela.`)} className="p-4 bg-green-500 text-white rounded-2xl hover:bg-green-600 shadow-lg"><Send size={20} /></button>
+                    <div className="flex gap-2">
+                      <button 
+                        title="Enviar Cobrança Oficial (Template)"
+                        onClick={() => handleSendCollectionTemplate(routeItem)} 
+                        className="p-4 bg-blue-600 text-white rounded-2xl hover:bg-blue-700 shadow-lg flex items-center gap-2"
+                      >
+                        <Zap size={20} />
+                        <span className="hidden md:inline font-black text-[10px] uppercase tracking-widest">Oficial</span>
+                      </button>
+                      <button 
+                        title="Mensagem Manual (Texto Livre)"
+                        onClick={() => handleSendWhatsApp(routeItem.client?.phone!, `Credi Fácil: Olá ${routeItem.client?.name}, estou chegando para sua parcela.`)} 
+                        className="p-4 bg-green-500 text-white rounded-2xl hover:bg-green-600 shadow-lg"
+                      >
+                        <Send size={20} />
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -1571,9 +1651,17 @@ const App: React.FC = () => {
                   <button
                     onClick={async () => {
                       if (!mpConfig.whatsappApiToken || !mpConfig.whatsappPhoneNumberId) return alert("Configure os campos acima primeiro.");
+                      const testPhone = prompt("Digite seu número com DDD (ex: 11988887777):");
+                      if (!testPhone) return;
                       try {
-                        await axios.post('/api/send-whatsapp', { phone: '5500000000000', message: 'Teste de conexão Credi Fácil' });
-                        alert("Solicitação enviada! Verifique os logs se necessário.");
+                        await axios.post('/api/send-whatsapp', { 
+                          phone: testPhone, 
+                          template: { 
+                            name: "hello_world", 
+                            language: { code: "en_US" } 
+                          } 
+                        });
+                        alert("Solicitação enviada! Verifique seu WhatsApp.");
                       } catch (e: any) {
                         alert("Erro no teste: " + (e.response?.data?.error || e.message));
                       }

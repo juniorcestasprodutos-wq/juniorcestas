@@ -212,8 +212,10 @@ app.post("/api/google-sheets/sync", async (req, res) => {
   }
 });
 
-app.post("/api/whatsapp/send", async (req, res) => {
+app.post("/api/send-whatsapp", async (req, res) => {
   const { phone, message } = req.body;
+  console.log("[WhatsApp] req.body:", JSON.stringify(req.body, null, 2));
+  console.log(`[WhatsApp] Recebendo requisição para ${phone}: ${message}`);
   const { whatsappApiToken, whatsappPhoneNumberId } = paymentConfig;
 
   if (!whatsappApiToken || !whatsappPhoneNumberId) {
@@ -225,15 +227,23 @@ app.post("/api/whatsapp/send", async (req, res) => {
     // Ensure phone has country code (default to 55 for Brazil if not present)
     const formattedPhone = cleanedPhone.length <= 11 ? `55${cleanedPhone}` : cleanedPhone;
 
+    const payload: any = {
+      messaging_product: "whatsapp",
+      to: formattedPhone,
+      type: req.body.template ? "template" : "text",
+    };
+
+    if (req.body.template) {
+      payload.template = req.body.template;
+    } else {
+      payload.text = { body: message };
+    }
+
+    console.log("[WhatsApp] Enviando payload para Meta:", JSON.stringify(payload, null, 2));
+
     const response = await axios.post(
-      `https://graph.facebook.com/v18.0/${whatsappPhoneNumberId}/messages`,
-      {
-        messaging_product: "whatsapp",
-        recipient_type: "individual",
-        to: formattedPhone,
-        type: "text",
-        text: { body: message }
-      },
+      `https://graph.facebook.com/v22.0/${whatsappPhoneNumberId}/messages`,
+      payload,
       {
         headers: {
           'Authorization': `Bearer ${whatsappApiToken}`,
