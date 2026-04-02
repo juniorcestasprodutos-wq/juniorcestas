@@ -691,9 +691,10 @@ const App: React.FC = () => {
         setIsGeneratingPix(null);
       }
 
-      // 2. Envia o Template
+      // 2. Envia o Template e o código PIX para o backend (que cuida do segundo balão)
       await axios.post('/api/send-whatsapp', {
         phone: routeItem.client?.phone,
+        pixCode: pixCode, // O backend enviará o segundo balão automaticamente
         template: {
           name: "aviso_de_vencimento",
           language: { code: "en" },
@@ -711,21 +712,7 @@ const App: React.FC = () => {
         }
       });
 
-      // 4. Aguarda 2 segundos e envia o código PIX em um balão separado para facilitar a cópia
-      const phone = routeItem.client?.phone;
-      setTimeout(async () => {
-        try {
-          await axios.post('/api/send-whatsapp', {
-            phone: phone,
-            message: `*Copia e Cola PIX:* \n\n\`${pixCode}\``
-          });
-          console.log("Segundo balão (PIX) enviado com sucesso!");
-        } catch (e: any) {
-          console.error("Erro ao enviar balão separado do PIX:", e.response?.data || e.message);
-        }
-      }, 2000);
-
-      alert(`Cobrança oficial iniciada para ${routeItem.client?.name}! Verifique o WhatsApp em alguns segundos.`);
+      alert(`Cobrança oficial enviada com sucesso para ${routeItem.client?.name}!`);
     } catch (error: any) {
       console.error("Erro no envio do template:", error);
       const serverError = error.response?.data?.error || error.message;
