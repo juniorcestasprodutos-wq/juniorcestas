@@ -22,6 +22,7 @@ import { dataService } from './src/dataService';
 import { supabase } from './src/supabaseClient';
 
 const App: React.FC = () => {
+  // Versão: 2026-04-01-v2
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     const saved = localStorage.getItem('credi_facil_user');
     return saved ? JSON.parse(saved) : null;

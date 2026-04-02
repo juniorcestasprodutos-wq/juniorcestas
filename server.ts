@@ -11,6 +11,7 @@ const PORT = 3000;
 app.use(cors());
 app.use(express.json());
 
+// Versão do WhatsApp: v22.0-2026-04-01
 // Simple storage for config
 const CONFIG_FILE = path.resolve('./mp_config.json');
 let paymentConfig = {
