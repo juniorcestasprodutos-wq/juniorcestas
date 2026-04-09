@@ -260,6 +260,38 @@ app.post("/api/send-whatsapp", async (req, res) => {
   }
 });
 
+// WhatsApp Webhook Configuration
+const WHATSAPP_VERIFY_TOKEN = 'credi_facil_webhook_2024';
+
+app.get("/api/webhook/whatsapp", (req, res) => {
+    const mode = req.query['hub.mode'];
+    const token = req.query['hub.verify_token'];
+    const challenge = req.query['hub.challenge'];
+
+    if (mode && token) {
+        if (mode === 'subscribe' && token === WHATSAPP_VERIFY_TOKEN) {
+            console.log('WEBHOOK_VERIFIED');
+            res.status(200).send(challenge);
+        } else {
+            res.sendStatus(403);
+        }
+    } else {
+        res.sendStatus(400);
+    }
+});
+
+app.post("/api/webhook/whatsapp", (req, res) => {
+    const body = req.body;
+    console.log('WhatsApp Webhook Event Received:', JSON.stringify(body, null, 2));
+
+    // Event handling logic (can be expanded later)
+    if (body.object === 'whatsapp_business_account') {
+        // Status updates (sent, delivered, read) or messages
+    }
+
+    res.status(200).send('EVENT_RECEIVED');
+});
+
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
