@@ -121,9 +121,11 @@ const Chat: React.FC<ChatProps> = ({ clients, whatsappConfig }) => {
 
       // Local update (Real-time will also trigger but this is for instant feedback)
       // loadMessages(activeChat); // Optional if realtime is fast enough
-    } catch (err) {
+    } catch (err: any) {
+      const errorData = err.response?.data;
+      const errorMsg = errorData?.message || errorData?.error || err.message;
       console.error('Error sending message:', err);
-      alert('Erro ao enviar mensagem.');
+      alert('Erro ao enviar: ' + errorMsg);
       setInputText(textToSend); // Restore text on error
     } finally {
       setIsSending(false);

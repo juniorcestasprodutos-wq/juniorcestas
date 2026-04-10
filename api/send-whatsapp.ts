@@ -38,7 +38,7 @@ export default async function handler(req: any, res: any) {
         }
 
         const response = await axios.post(
-            `https://graph.facebook.com/v22.0/${config.whatsapp_phone_number_id}/messages`,
+            `https://graph.facebook.com/v21.0/${config.whatsapp_phone_number_id}/messages`,
             payload,
             {
                 headers: {
@@ -52,7 +52,7 @@ export default async function handler(req: any, res: any) {
         if (pixCode) {
             await new Promise(resolve => setTimeout(resolve, 1000));
             await axios.post(
-                `https://graph.facebook.com/v22.0/${config.whatsapp_phone_number_id}/messages`,
+                `https://graph.facebook.com/v21.0/${config.whatsapp_phone_number_id}/messages`,
                 {
                     messaging_product: "whatsapp",
                     to: formattedPhone,
