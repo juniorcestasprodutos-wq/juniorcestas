@@ -165,7 +165,10 @@ const App: React.FC = () => {
     googleSheetId: '',
     googleApiKey: '',
     whatsappApiToken: '',
-    whatsappPhoneNumberId: ''
+    whatsappPhoneNumberId: '',
+    appsScriptUrl: '',
+    creditLimitEnabled: false,
+    creditLimitValue: 0
   });
 
   const [isSyncing, setIsSyncing] = useState(false);
