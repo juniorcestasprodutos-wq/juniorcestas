@@ -625,6 +625,26 @@ const App: React.FC = () => {
 
       const client = clients.find(c => c.id === sale.clientId);
       if (client) {
+        // Envio do Template de Agradecimento (Oficial)
+        if (isFullPayment && mpConfig.whatsappApiToken && mpConfig.whatsappPhoneNumberId) {
+          axios.post('/api/send-whatsapp', {
+            phone: client.phone,
+            template: {
+              name: "obrigadopagamentoo",
+              language: { code: "pt_BR" },
+              components: [
+                {
+                  type: "body",
+                  parameters: [
+                    { type: "text", text: client.name || "Cliente" },
+                    { type: "text", text: amount.toFixed(2).replace('.', ',') }
+                  ]
+                }
+              ]
+            }
+          }).catch(e => console.error("Erro ao enviar agradecimento:", e));
+        }
+
         setPrintData({
           sale: updatedSale,
           client,
@@ -703,7 +723,7 @@ const App: React.FC = () => {
         pixCode: pixCode, // O backend enviará o segundo balão automaticamente
         template: {
           name: "aviso_de_vencimento",
-          language: { code: "pt_BR" },
+          language: { code: "en" },
           components: [
             {
               type: "body",
@@ -1712,7 +1732,7 @@ const App: React.FC = () => {
                           phone: testPhone, 
                           template: { 
                             name: "aviso_de_vencimento", 
-                            language: { code: "pt_BR" },
+                            language: { code: "en" },
                             components: [
                               {
                                 type: "body",

@@ -136,7 +136,7 @@ export default async function handler(req: any, res: any) {
                             type: "template",
                             template: {
                                 name: "aviso_de_vencimento",
-                                language: { code: "pt_BR" },
+                                language: { code: "en" },
                                 components: [
                                     {
                                         type: "body",
