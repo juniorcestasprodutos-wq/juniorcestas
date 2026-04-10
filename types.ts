@@ -74,6 +74,7 @@ export interface PaymentProviderConfig {
   googleApiKey: string;
   whatsappApiToken?: string;
   whatsappPhoneNumberId?: string;
+  appsScriptUrl?: string;
 }
 
 export interface Sale {

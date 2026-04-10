@@ -18,7 +18,8 @@ import {
   Contact,
   Settings,
   Truck,
-  Layers
+  Layers,
+  MessageCircle
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -40,6 +41,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeRole, currentUser, acti
 
   const navItems = activeRole === Role.MASTER ? [
     { id: 'dashboard', label: 'Painel Master', icon: <LayoutDashboard size={20} /> },
+    { id: 'chat', label: 'Chat WhatsApp', icon: <MessageCircle size={20} /> },
     { id: 'master_installments', label: 'Parcelas', icon: <Layers size={20} /> },
     { id: 'collectors', label: 'Cobradores', icon: <Users size={20} /> },
     { id: 'clients', label: 'Clientes', icon: <Contact size={20} /> },
@@ -59,6 +61,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeRole, currentUser, acti
     { id: 'tasks', label: 'Minhas Tarefas', icon: <Layers size={20} /> },
   ] : [
     { id: 'route', label: 'Rota de Hoje', icon: <Route size={20} /> },
+    { id: 'chat', label: 'Chat WhatsApp', icon: <MessageCircle size={20} /> },
     { id: 'tasks', label: 'Minhas Tarefas', icon: <Layers size={20} /> },
     { id: 'future', label: 'Futuras', icon: <CalendarClock size={20} /> },
     { id: 'sales', label: 'Vendas', icon: <ReceiptText size={20} /> },
@@ -153,6 +156,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeRole, currentUser, acti
               {activeTab === 'assembler' && 'Minhas Montagens'}
               {activeTab === 'future' && 'Cobranças Futuras'}
               {activeTab === 'movements' && 'Extrato de Movimentações'}
+              {activeTab === 'chat' && 'Central de Atendimento WhatsApp'}
             </h1>
           </div>
           <div className="hidden sm:block text-xs text-gray-400 font-bold uppercase tracking-wider">

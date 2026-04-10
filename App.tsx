@@ -20,6 +20,7 @@ import ClientPortal from './src/components/ClientPortal';
 import ThermalReceipt from './src/components/ThermalReceipt';
 import { dataService } from './src/dataService';
 import { supabase } from './src/supabaseClient';
+import Chat from './src/components/Chat';
 
 const App: React.FC = () => {
   // Versão: 2026-04-01-v3 - Idioma EN para aviso_de_vencimento
@@ -1547,6 +1548,15 @@ const App: React.FC = () => {
         {activeTab === 'future' && <RouteList items={futureRoute} title="Cobranças Futuras" />}
         {activeTab === 'master_installments' && <MasterInstallments />}
         {activeTab === 'delivery' && <DeliveryModule />}
+        {activeTab === 'chat' && (
+          <Chat 
+            clients={clients} 
+            whatsappConfig={{ 
+              whatsappApiToken: mpConfig.whatsappApiToken, 
+              whatsappPhoneNumberId: mpConfig.whatsappPhoneNumberId 
+            }} 
+          />
+        )}
 
         {role === Role.MASTER && activeTab === 'collectors' && (
           <div className="space-y-6">

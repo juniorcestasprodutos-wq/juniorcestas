@@ -205,7 +205,8 @@ export const dataService = {
             googleSheetId: data.google_sheet_id,
             googleApiKey: data.google_api_key,
             whatsappApiToken: data.whatsapp_api_token,
-            whatsappPhoneNumberId: data.whatsapp_phone_number_id
+            whatsappPhoneNumberId: data.whatsapp_phone_number_id,
+            appsScriptUrl: data.apps_script_url
         };
     },
 
@@ -223,7 +224,8 @@ export const dataService = {
             google_sheet_id: config.googleSheetId,
             google_api_key: config.googleApiKey,
             whatsapp_api_token: config.whatsappApiToken,
-            whatsapp_phone_number_id: config.whatsappPhoneNumberId
+            whatsapp_phone_number_id: config.whatsappPhoneNumberId,
+            apps_script_url: config.appsScriptUrl
         }).eq('id', 'default');
         if (error) throw error;
     },
@@ -267,5 +269,52 @@ export const dataService = {
     async deleteTask(taskId: string): Promise<void> {
         const { error } = await supabase.from('tasks').delete().eq('id', taskId);
         if (error) throw error;
+    },
+
+    // Chat
+    async getChatMessages(phone: string): Promise<any[]> {
+        const { data, error } = await supabase
+            .from('whatsapp_messages')
+            .select('*')
+            .eq('phone', phone)
+            .order('created_at', { ascending: true });
+        if (error) throw error;
+        return data;
+    },
+
+    async saveChatMessage(message: any): Promise<void> {
+        const { error } = await supabase.from('whatsapp_messages').insert({
+            phone: message.phone,
+            message: message.message,
+            direction: message.direction,
+            media_url: message.mediaUrl,
+            media_type: message.mediaType,
+            client_id: message.clientId,
+            status: message.status || 'sent'
+        });
+        if (error) throw error;
+    },
+
+    async getChatList(): Promise<any[]> {
+        // Busca as últimas mensagens de cada telefone para montar a lista de conversas
+        const { data, error } = await supabase
+            .from('whatsapp_messages')
+            .select('phone, created_at, message, direction')
+            .order('created_at', { ascending: false });
+        
+        if (error) throw error;
+
+        // Group by phone and take the first (latest)
+        const uniqueChats: any[] = [];
+        const seenPhones = new Set();
+
+        data.forEach(m => {
+            if (!seenPhones.has(m.phone)) {
+                seenPhones.add(m.phone);
+                uniqueChats.push(m);
+            }
+        });
+
+        return uniqueChats;
     }
 };

@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import axios from 'axios';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || '';
@@ -8,14 +9,12 @@ export default async function handler(req: any, res: any) {
   // 1. GET: Verification from Meta
   if (req.method === 'GET') {
     const verify_token = 'credi_facil_webhook_2024';
-    
     const mode = req.query['hub.mode'];
     const token = req.query['hub.verify_token'];
     const challenge = req.query['hub.challenge'];
 
     if (mode && token) {
       if (mode === 'subscribe' && token === verify_token) {
-        console.log('WEBHOOK_VERIFIED');
         return res.status(200).send(challenge);
       } else {
         return res.status(403).send('Forbidden');
@@ -26,15 +25,86 @@ export default async function handler(req: any, res: any) {
   // 2. POST: Event Notifications
   if (req.method === 'POST') {
     const body = req.body;
-    
-    // Log event to console for debugging
-    console.log('WhatsApp Webhook Event:', JSON.stringify(body, null, 2));
+    console.log('WhatsApp Webhook Event Received');
 
-    // Handle message status updates or incoming messages here
     try {
       if (body.object === 'whatsapp_business_account') {
-        // You can extend this logic to update your database status
-        // e.g., mark messages as DELIVERED or READ
+        const entry = body.entry?.[0];
+        const changes = entry?.changes?.[0];
+        const value = changes?.value;
+        const messages = value?.messages;
+
+        if (messages && messages[0]) {
+          const msg = messages[0];
+          const from = msg.from; // Phone number
+          const type = msg.type;
+          let content = '';
+          let mediaUrl = null;
+          let mediaType = null;
+
+          if (type === 'text') {
+            content = msg.text?.body;
+          } else if (['image', 'video', 'audio', 'document'].includes(type)) {
+            const mediaId = msg[type]?.id;
+            mediaType = type;
+            
+            // Buscar configurações para API e Apps Script
+            const { data: config } = await supabase.from('config').select('*').eq('id', 'default').single();
+            
+            if (config && config.whatsapp_api_token) {
+              try {
+                // 1. Pegar URL da mídia na Meta
+                const mediaRes = await axios.get(`https://graph.facebook.com/v21.0/${mediaId}`, {
+                  headers: { Authorization: `Bearer ${config.whatsapp_api_token}` }
+                });
+                
+                const metaMediaUrl = mediaRes.data.url;
+
+                // 2. Se tiver Apps Script, baixa e envia pra lá
+                if (config.apps_script_url) {
+                  const fileRes = await axios.get(metaMediaUrl, {
+                    headers: { Authorization: `Bearer ${config.whatsapp_api_token}` },
+                    responseType: 'arraybuffer'
+                  });
+                  
+                  const base64 = Buffer.from(fileRes.data).toString('base64');
+                  const uploadRes = await axios.post(config.apps_script_url, {
+                    base64: base64,
+                    mimeType: msg[type]?.mime_type,
+                    fileName: `${from}_${mediaId}`
+                  });
+
+                  if (uploadRes.data.status === 'success') {
+                    mediaUrl = uploadRes.data.url;
+                  }
+                } else {
+                  // Se não tiver Apps Script, salvamos o link da Meta (expira em 30 dias)
+                  mediaUrl = metaMediaUrl;
+                }
+              } catch (e) {
+                console.error('Error handling media:', e);
+              }
+            }
+          }
+
+          if (content || mediaUrl) {
+            // Tenta achar o cliente pelo telefone
+            const { data: client } = await supabase
+              .from('clients')
+              .select('id')
+              .ilike('phone', `%${from.slice(-8)}%`) // Busca aproximada pelos últimos 8 dígitos
+              .single();
+
+            await supabase.from('whatsapp_messages').insert({
+              phone: from,
+              message: content,
+              direction: 'inbound',
+              media_url: mediaUrl,
+              media_type: mediaType,
+              client_id: client?.id || null
+            });
+          }
+        }
       }
     } catch (err) {
       console.error('Error processing WhatsApp webhook:', err);
