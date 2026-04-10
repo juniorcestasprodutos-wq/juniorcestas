@@ -70,8 +70,12 @@ export default async function handler(req: any, res: any) {
 
         res.json({ status: "ok", data: response.data });
     } catch (error: any) {
-        const errorData = JSON.stringify(error.response?.data || error.message);
-        console.error("WhatsApp Error:", errorData);
-        res.status(500).json({ error: `Erro WhatsApp API: ${errorData}` });
+        const metaError = error.response?.data?.error || { message: error.message };
+        console.error("WhatsApp Error Log:", JSON.stringify(metaError, null, 2));
+        res.status(500).json({ 
+            error: "Erro na API do WhatsApp", 
+            message: metaError.message,
+            details: metaError
+        });
     }
 }

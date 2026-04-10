@@ -726,7 +726,7 @@ const App: React.FC = () => {
         pixCode: pixCode, // O backend enviará o segundo balão automaticamente
         template: {
           name: "aviso_de_vencimento",
-          language: { code: "en" },
+          language: { code: "pt_BR" },
           components: [
             {
               type: "body",
@@ -1731,32 +1731,43 @@ const App: React.FC = () => {
                       if (!testPhone) return;
                       try {
                         // Tentar o template configurado no portal como Inglês (en)
+                        // Alterado para pt_BR e melhorado tratamento de erro
                         await axios.post('/api/send-whatsapp', { 
                           phone: testPhone, 
                           template: { 
                             name: "aviso_de_vencimento", 
-                            language: { code: "en" },
+                            language: { code: "pt_BR" },
                             components: [
                               {
                                 type: "body",
                                 parameters: [
-                                  { type: "text", text: "TESTE" }
+                                  { type: "text", text: "TESTE" },
+                                  { type: "text", text: "0000" },
+                                  { type: "text", text: "0,00" },
+                                  { type: "text", text: "PIX_TESTE" }
                                 ]
                               }
                             ]
                           } 
                         });
-                        alert("Sucesso! Template oficial 'aviso_de_vencimento' enviado.");
+                        alert("Sucesso! Template oficial 'aviso_de_vencimento' enviado em Português.");
                       } catch (e: any) {
-                        const errorMsg = e.response?.data?.error?.message || e.message;
-                        alert("Falha no template principal: " + errorMsg + "\n\nVerifique se o idioma 'English' e o Phone Number ID estão corretos.");
+                        const errorData = e.response?.data;
+                        const errorMsg = errorData?.message || errorData?.error || e.message;
+                        alert("Falha no teste: " + errorMsg + "\n\nVerifique se o Template 'aviso_de_vencimento' está ativo no idioma Português (pt_BR) no seu painel da Meta.");
                         
-                        // Fallback apenas para registro interno ou se for número de teste real
-                        if (errorMsg.includes("hello_world")) {
-                           await axios.post('/api/send-whatsapp', { 
-                             phone: testPhone, 
-                             template: { name: "hello_world", language: { code: "en_US" } } 
-                           }).catch(() => {});
+                        // Fallback de diagnóstico: tentar o hello_world
+                        if (confirm("O template principal falhou. Deseja tentar o 'hello_world' apenas para confirmar se o TOKEN e o ID estão corretos?")) {
+                           try {
+                             await axios.post('/api/send-whatsapp', { 
+                               phone: testPhone, 
+                               template: { name: "hello_world", language: { code: "en_US" } } 
+                             });
+                             alert("O Token e o ID do Telefone estão CORRETOS! O problema é apenas o nome ou idioma do template 'aviso_de_vencimento'. Verifique no painel da Meta.");
+                           } catch (err: any) {
+                             const errData = err.response?.data;
+                             alert("O TOKEN ou ID também falharam: " + (errData?.message || err.message));
+                           }
                         }
                       }
                     }}
