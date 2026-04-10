@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   MessageCircle, Send, Search, Phone, User, 
   Image as ImageIcon, Video, FileText, MoreVertical, 
-  ChevronLeft, RefreshCw, Check, CheckCheck 
+  ChevronLeft, RefreshCw, Check, CheckCheck, Plus, X 
 } from 'lucide-react';
 import { dataService } from '../dataService';
 import { supabase } from '../supabaseClient';
@@ -36,6 +36,7 @@ const Chat: React.FC<ChatProps> = ({ clients, whatsappConfig }) => {
   const [inputText, setInputText] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -145,9 +146,14 @@ const Chat: React.FC<ChatProps> = ({ clients, whatsappConfig }) => {
         <div className="p-6 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-black uppercase tracking-tighter text-slate-800">Conversas</h2>
-            <button onClick={loadConversations} className="p-2 hover:bg-white rounded-xl transition-all text-slate-400 hover:text-blue-600">
-              <RefreshCw size={18} />
-            </button>
+            <div className="flex gap-2">
+              <button onClick={() => setIsNewChatModalOpen(true)} className="p-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 shadow-lg transition-all" title="Nova Conversa">
+                <Plus size={18} />
+              </button>
+              <button onClick={loadConversations} className="p-2 hover:bg-white rounded-xl transition-all text-slate-400 hover:text-blue-600">
+                <RefreshCw size={18} />
+              </button>
+            </div>
           </div>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
@@ -290,6 +296,62 @@ const Chat: React.FC<ChatProps> = ({ clients, whatsappConfig }) => {
           </div>
         )}
       </div>
+
+      {/* New Chat Modal */}
+      {isNewChatModalOpen && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-[40px] w-full max-w-md max-h-[80vh] flex flex-col overflow-hidden shadow-2xl border border-slate-200">
+            <div className="p-8 border-b border-slate-100 flex justify-between items-center">
+              <div>
+                <h3 className="text-2xl font-black text-slate-900 uppercase tracking-tighter">Novo Chat</h3>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Selecione um cliente</p>
+              </div>
+              <button onClick={() => setIsNewChatModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-full transition-all">
+                <X size={24} className="text-slate-400" />
+              </button>
+            </div>
+            
+            <div className="p-4 bg-slate-50">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                <input 
+                  type="text" 
+                  placeholder="Pesquisar contatos..." 
+                  className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-blue-600 font-bold"
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-2">
+              {clients
+                .filter(c => c.name.toLowerCase().includes(searchQuery.toLowerCase()) || c.phone.includes(searchQuery))
+                .map(client => (
+                <div 
+                  key={client.id}
+                  onClick={() => {
+                    // Limpa formatação do telefone para o padrão WhatsApp Cloud API
+                    const clearPhone = client.phone.replace(/\D/g, '');
+                    const finalPhone = clearPhone.startsWith('55') ? clearPhone : `55${clearPhone}`;
+                    setActiveChat(finalPhone);
+                    setIsNewChatModalOpen(false);
+                    setSearchQuery('');
+                  }}
+                  className="p-4 rounded-3xl hover:bg-blue-50 cursor-pointer flex items-center gap-4 transition-all group"
+                >
+                  <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center group-hover:bg-blue-100 group-hover:text-blue-600 transition-colors">
+                    <User size={24} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-black text-slate-800 uppercase tracking-tight">{client.name}</p>
+                    <p className="text-xs font-bold text-slate-400">{client.phone}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
