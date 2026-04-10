@@ -193,16 +193,21 @@ const App: React.FC = () => {
           return inst.dueDate < today && diffDays >= reassignDays;
         });
 
-        if (overdueInstallment && sale.collectorId === 'loja') {
-          const activeCollectors = collectors.filter(c => c.active !== false && c.id !== 'loja');
-          if (activeCollectors.length > 0) {
-            const nextCollector = activeCollectors[0];
-            if (nextCollector.id !== sale.collectorId) {
-              const updatedSale = { ...sale, collectorId: nextCollector.id };
-              await dataService.saveSale(updatedSale);
-              hasGlobalChanges = true;
-              return updatedSale;
-            }
+        if (overdueInstallment && (sale.collectorId === 'loja' || !sale.collectorId)) {
+          // Lógica de Reatribuição Automática Refinada
+          // Preferência: Quem entregou (deliveryPersonId)
+          let nextCollectorId = sale.deliveryPersonId;
+          
+          if (!nextCollectorId) {
+            const activeCollectors = collectors.filter(c => c.active !== false && c.id !== 'loja');
+            if (activeCollectors.length > 0) nextCollectorId = activeCollectors[0].id;
+          }
+
+          if (nextCollectorId && nextCollectorId !== sale.collectorId) {
+            const updatedSale = { ...sale, collectorId: nextCollectorId };
+            await dataService.saveSale(updatedSale);
+            hasGlobalChanges = true;
+            return updatedSale;
           }
         }
         return sale;
@@ -731,7 +736,17 @@ const App: React.FC = () => {
       if (!sale) return;
       const updatedSale = {
         ...sale,
-        installments: sale.installments.map(i => i.id === inst.id ? { ...i, dueDate: newDate, status: 'RESCHEDULED' as any } : i)
+        installments: sale.installments.map(i => {
+          if (i.id !== inst.id) return i;
+          return { 
+            ...i, 
+            dueDate: newDate, 
+            status: 'RESCHEDULED' as any,
+            pixSent: false, // Reset cycle
+            rescheduleCount: (i.rescheduleCount || 0) + 1,
+            originalDueDate: i.originalDueDate || i.dueDate
+          };
+        })
       };
       await dataService.saveSale(updatedSale);
       setSales(prev => prev.map(s => s.id === sale.id ? updatedSale : s));
@@ -812,6 +827,31 @@ const App: React.FC = () => {
 
       await dataService.saveSale(saleData);
 
+      // Notificação para Funcionários (Entrega/Montagem)
+      const notifyWorker = async (workerId: string, type: 'ENTREGA' | 'MONTAGEM') => {
+        const worker = collectors.find(c => c.id === workerId);
+        if (worker?.phone) {
+          const client = clients.find(c => c.id === saleData.clientId);
+          const msg = `Credi Fácil: Olá ${worker.name}, você recebeu uma nova ${type}. \n\nCliente: ${client?.name}\nEndereço: ${client?.address}, ${client?.neighborhood}\nID Venda: #${saleData.id}`;
+          await handleSendWhatsApp(worker.phone, msg);
+        }
+      };
+
+      if (saleData.deliveryPersonId) notifyWorker(saleData.deliveryPersonId, 'ENTREGA');
+      if (saleData.isAssembly && saleData.assemblerId) notifyWorker(saleData.assemblerId, 'MONTAGEM');
+
+      // Limite de Crédito
+      if (mpConfig.creditLimitEnabled && total > (mpConfig.creditLimitValue || 0)) {
+        const client = clients.find(c => c.id === saleData.clientId);
+        await dataService.saveTask({
+          title: `⚠️ Autorização de Crédito: ${client?.name}`,
+          description: `Venda #${saleId} de ${formatCurrency(total)} excede o limite de ${formatCurrency(mpConfig.creditLimitValue || 0)}. Verificar score e histórico.`,
+          userId: 'MASTER', // Para o Master
+          status: 'PENDING',
+          relatedId: saleId
+        });
+      }
+
       if (newSale.observations) {
         await dataService.saveTask({
           title: `Tarefa da Venda #${saleId}`,
@@ -855,9 +895,27 @@ const App: React.FC = () => {
     }
   };
 
-  const handleReassignSale = (saleId: string, newCollectorId: string) => {
-    setSales(prev => prev.map(s => s.id === saleId ? { ...s, collectorId: newCollectorId } : s));
-    alert("Venda reatribuída com sucesso!");
+  const handleReassignSale = async (saleId: string, newCollectorId: string) => {
+    try {
+      const sale = sales.find(s => s.id === saleId);
+      if (!sale) return;
+      
+      const updatedSale = { ...sale, collectorId: newCollectorId };
+      await dataService.saveSale(updatedSale);
+      setSales(prev => prev.map(s => s.id === saleId ? updatedSale : s));
+
+      // Notifica o novo cobrador
+      const worker = collectors.find(c => c.id === newCollectorId);
+      if (worker?.phone) {
+        const client = clients.find(c => c.id === sale.clientId);
+        const msg = `Credi Fácil: Olá ${worker.name}, a venda #${sale.id} (${client?.name}) foi designada para sua carteira de cobrança.`;
+        await handleSendWhatsApp(worker.phone, msg);
+      }
+
+      alert("Venda reatribuída e cobrador notificado!");
+    } catch (err) {
+      console.error("Error reassigning", err);
+    }
   };
 
   const handleGeneratePix = async (routeItem: any) => {
@@ -1649,16 +1707,37 @@ const App: React.FC = () => {
                       const testPhone = prompt("Digite seu número com DDD (ex: 11988887777):");
                       if (!testPhone) return;
                       try {
+                        // Usar aviso_de_vencimento como teste real por padrão
                         await axios.post('/api/send-whatsapp', { 
                           phone: testPhone, 
                           template: { 
-                            name: "hello_world", 
-                            language: { code: "en_US" } 
+                            name: "aviso_de_vencimento", 
+                            language: { code: "pt_BR" },
+                            components: [
+                              {
+                                type: "body",
+                                parameters: [
+                                  { type: "text", text: "TESTE" },
+                                  { type: "text", text: "0000" },
+                                  { type: "text", text: "1,00" },
+                                  { type: "text", text: "CODIGO_PIX_TESTE" }
+                                ]
+                              }
+                            ]
                           } 
                         });
-                        alert("Solicitação enviada! Verifique seu WhatsApp.");
+                        alert("Solicitação enviada usando template real! Verifique seu WhatsApp.");
                       } catch (e: any) {
-                        alert("Erro no teste: " + (e.response?.data?.error || e.message));
+                        try {
+                          // Fallback para hello_world se o primeiro falhar (caso seja número de teste)
+                          await axios.post('/api/send-whatsapp', { 
+                            phone: testPhone, 
+                            template: { name: "hello_world", language: { code: "en_US" } } 
+                          });
+                          alert("Enviado via Hello World (Número de teste)");
+                        } catch (e2: any) {
+                           alert("Erro no teste: " + (e2.response?.data?.error || e2.message));
+                        }
                       }
                     }}
                     className="text-[10px] font-black uppercase tracking-widest text-blue-600 hover:bg-blue-50 px-4 py-2 rounded-lg transition-all"
@@ -1672,6 +1751,27 @@ const App: React.FC = () => {
                   <div>
                     <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">URL do Webhook N8N</label>
                     <input type="text" value={mpConfig.n8nWebhookUrl} onChange={e => setMpConfig({ ...mpConfig, n8nWebhookUrl: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" placeholder="https://n8n.seu-servidor.com/webhook/..." />
+                  </div>
+                </div>
+
+                <div className="space-y-6">
+                  <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest border-b pb-2 flex items-center gap-2"><Send size={18} /> Google Apps Script (Drive Bridge)</h3>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">URL do Apps Script</label>
+                    <input type="text" value={mpConfig.appsScriptUrl} onChange={e => setMpConfig({ ...mpConfig, appsScriptUrl: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" placeholder="https://script.google.com/macros/s/..." />
+                  </div>
+                </div>
+
+                <div className="space-y-6">
+                  <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest border-b pb-2 flex items-center gap-2"><AlertTriangle size={18} /> Limite de Crédito</h3>
+                  <div className="flex items-center gap-3 mb-4">
+                    <input type="checkbox" id="credit-limit-enabled" checked={mpConfig.creditLimitEnabled} onChange={e => setMpConfig({ ...mpConfig, creditLimitEnabled: e.target.checked })} className="w-5 h-5 rounded accent-blue-600" />
+                    <label htmlFor="credit-limit-enabled" className="text-sm font-black text-slate-600 uppercase tracking-widest cursor-pointer">Ativar Controle de Limite</label>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Valor Limite (R$)</label>
+                    <input type="number" value={mpConfig.creditLimitValue} onChange={e => setMpConfig({ ...mpConfig, creditLimitValue: parseFloat(e.target.value) })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ex: 5000" />
+                    <p className="text-[10px] text-slate-400 mt-1 italic">Vendas acima deste valor gerarão uma tarefa de autorização para o Master.</p>
                   </div>
                 </div>
 
@@ -1717,7 +1817,25 @@ const App: React.FC = () => {
         )}
 
         {isAddSaleModalOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"><div className="bg-white rounded-3xl w-full max-w-4xl p-8 shadow-2xl scale-in-center overflow-y-auto max-h-[90vh]"><div className="flex justify-between items-center mb-6"><h3 className="text-xl font-black uppercase tracking-tight">Nova Venda (Ficha)</h3><button onClick={() => setIsAddSaleModalOpen(false)}><X size={24} className="text-slate-400" /></button></div><div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8"><div className="md:col-span-2"><div className="flex items-end gap-2"><div className="flex-1"><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Cliente</label><select value={newSale.clientId} onChange={(e) => setNewSale({ ...newSale, clientId: e.target.value })} className="w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 p-2.5 bg-gray-50 outline-none"><option value="">Selecione...</option>{clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div><button onClick={() => setIsAddClientModalOpen(true)} className="p-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 active:scale-95"><Plus size={24} /></button></div></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Entrada (PGL)</label><input type="number" value={newSale.downPayment} onChange={(e) => setNewSale({ ...newSale, downPayment: e.target.value })} placeholder="R$ 0,00" className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500" /></div><div className="md:col-span-2"><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Descrição do Serviço/Objeto</label><input type="text" value={newSale.description} onChange={(e) => setNewSale({ ...newSale, description: e.target.value })} placeholder="Ex: Móveis" className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500" /></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Total da Venda</label><input type="number" value={newSale.totalAmount} onChange={(e) => setNewSale({ ...newSale, totalAmount: e.target.value })} placeholder="R$ 0,00" className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500" /></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Data 1º Vencimento</label><input type="date" value={newSale.firstDueDate} onChange={(e) => setNewSale({ ...newSale, firstDueDate: e.target.value })} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500 font-bold" /></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Parcelas</label><input type="number" value={newSale.installmentsCount} onChange={(e) => setNewSale({ ...newSale, installmentsCount: e.target.value })} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500" /></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Cobrador</label><select value={newSale.collectorId} onChange={(e) => setNewSale({ ...newSale, collectorId: e.target.value })} disabled={role === Role.COLLECTOR} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500">{collectors.filter(c => c.active !== false).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Entregador</label><select value={newSale.deliveryPersonId} onChange={(e) => setNewSale({ ...newSale, deliveryPersonId: e.target.value })} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500"><option value="">Selecione...</option>{collectors.filter(c => (c.role === Role.DELIVERY || c.role === Role.MASTER) && c.active !== false).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"><div className="bg-white rounded-3xl w-full max-w-4xl p-8 shadow-2xl scale-in-center overflow-y-auto max-h-[90vh]"><div className="flex justify-between items-center mb-6"><h3 className="text-xl font-black uppercase tracking-tight">Nova Venda (Ficha)</h3><button onClick={() => setIsAddSaleModalOpen(false)}><X size={24} className="text-slate-400" /></button></div><div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8"><div className="md:col-span-2"><div className="flex items-end gap-2"><div className="flex-1"><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Cliente</label><select value={newSale.clientId} onChange={(e) => setNewSale({ ...newSale, clientId: e.target.value })} className="w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 p-2.5 bg-gray-50 outline-none"><option value="">Selecione...</option>{clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div><button onClick={() => setIsAddClientModalOpen(true)} className="p-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 active:scale-95"><Plus size={24} /></button></div></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Entrada (PGL)</label><input type="number" value={newSale.downPayment} onChange={(e) => setNewSale({ ...newSale, downPayment: e.target.value })} placeholder="R$ 0,00" className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500" /></div><div className="md:col-span-2"><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Descrição do Serviço/Objeto</label><input type="text" value={newSale.description} onChange={(e) => setNewSale({ ...newSale, description: e.target.value })} placeholder="Ex: Móveis" className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500" /></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Total da Venda</label><input type="number" value={newSale.totalAmount} onChange={(e) => setNewSale({ ...newSale, totalAmount: e.target.value })} placeholder="R$ 0,00" className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500" /></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Data 1º Vencimento</label><input type="date" value={newSale.firstDueDate} onChange={(e) => setNewSale({ ...newSale, firstDueDate: e.target.value })} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500 font-bold" /></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Parcelas</label><input type="number" value={newSale.installmentsCount} onChange={(e) => setNewSale({ ...newSale, installmentsCount: e.target.value })} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500" /></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Cobrador</label><select value={newSale.collectorId} onChange={(e) => setNewSale({ ...newSale, collectorId: e.target.value })} disabled={role === Role.COLLECTOR} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500">{collectors.filter(c => c.active !== false).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div><div>
+                  <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Entregador</label>
+                  <select 
+                    value={newSale.deliveryPersonId} 
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setNewSale(prev => ({ 
+                        ...prev, 
+                        deliveryPersonId: val,
+                        // Preferência: Se selecionou entregador e o cobrador ainda é a loja, assume o entregador
+                        collectorId: (prev.collectorId === 'loja' || !prev.collectorId) ? val : prev.collectorId 
+                      }));
+                    }} 
+                    className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500"
+                  >
+                    <option value="">Selecione...</option>
+                    {collectors.filter(c => (c.role === Role.DELIVERY || c.role === Role.MASTER) && c.active !== false).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
               <div className="md:col-span-1 flex items-center gap-2 pt-6">
                 <input type="checkbox" id="is-assembly" checked={newSale.isAssembly} onChange={e => setNewSale({ ...newSale, isAssembly: e.target.checked })} className="w-5 h-5 rounded accent-blue-600" />
                 <label htmlFor="is-assembly" className="text-xs font-black text-slate-600 uppercase tracking-widest cursor-pointer">Montagem?</label>

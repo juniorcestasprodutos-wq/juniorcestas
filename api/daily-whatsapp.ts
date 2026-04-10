@@ -42,6 +42,7 @@ export default async function handler(req: any, res: any) {
             const client = clients.find(c => c.id === sale.client_id);
             if (!client) continue;
 
+            let isVeryOverdue = false;
             for (const inst of sale.installments) {
                 if (inst.status !== 'PAID') {
                     if (inst.due_date === today && !inst.pix_sent) {
@@ -50,10 +51,26 @@ export default async function handler(req: any, res: any) {
                         const dueDateObj = new Date(inst.due_date);
                         const diffTime = Math.abs(new Date(today).getTime() - dueDateObj.getTime());
                         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                        if (diffDays < reassignDays) {
+                        
+                        if (diffDays >= reassignDays) {
+                            isVeryOverdue = true;
+                        } else {
                             itemsToProcess.push({ inst, sale, client });
                         }
                     }
+                }
+            }
+
+            // Lógica de Reatribuição Automática
+            if (isVeryOverdue && (sale.collector_id === 'loja' || !sale.collector_id)) {
+                let nextCollectorId = sale.delivery_person_id;
+                if (!nextCollectorId) {
+                    const { data: users } = await supabase.from('users').select('id').eq('active', true).neq('id', 'loja').limit(1);
+                    if (users && users.length > 0) nextCollectorId = users[0].id;
+                }
+
+                if (nextCollectorId && nextCollectorId !== sale.collector_id) {
+                    await supabase.from('sales').update({ collector_id: nextCollectorId }).eq('id', sale.id);
                 }
             }
         }

@@ -58,6 +58,8 @@ export interface Installment {
   pixSent?: boolean;
   manualAdjustment?: number;
   confirmedByMaster?: boolean;
+  originalDueDate?: string;
+  rescheduleCount?: number;
 }
 
 export interface PaymentProviderConfig {
@@ -75,6 +77,8 @@ export interface PaymentProviderConfig {
   whatsappApiToken?: string;
   whatsappPhoneNumberId?: string;
   appsScriptUrl?: string;
+  creditLimitEnabled?: boolean;
+  creditLimitValue?: number;
 }
 
 export interface Sale {

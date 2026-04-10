@@ -135,7 +135,9 @@ export const dataService = {
                 paymentDate: inst.payment_date,
                 pixSent: inst.pix_sent,
                 manualAdjustment: Number(inst.manual_adjustment),
-                confirmedByMaster: inst.confirmed_by_master
+                confirmedByMaster: inst.confirmed_by_master,
+                originalDueDate: inst.original_due_date,
+                rescheduleCount: inst.reschedule_count
             }))
         }));
     },
@@ -206,7 +208,9 @@ export const dataService = {
             googleApiKey: data.google_api_key,
             whatsappApiToken: data.whatsapp_api_token,
             whatsappPhoneNumberId: data.whatsapp_phone_number_id,
-            appsScriptUrl: data.apps_script_url
+            appsScriptUrl: data.apps_script_url,
+            creditLimitEnabled: data.credit_limit_enabled,
+            creditLimitValue: Number(data.credit_limit_value)
         };
     },
 
@@ -225,7 +229,9 @@ export const dataService = {
             google_api_key: config.googleApiKey,
             whatsapp_api_token: config.whatsappApiToken,
             whatsapp_phone_number_id: config.whatsappPhoneNumberId,
-            apps_script_url: config.appsScriptUrl
+            apps_script_url: config.appsScriptUrl,
+            credit_limit_enabled: config.creditLimitEnabled,
+            credit_limit_value: config.creditLimitValue
         }).eq('id', 'default');
         if (error) throw error;
     },
