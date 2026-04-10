@@ -1727,7 +1727,7 @@ const App: React.FC = () => {
                       const testPhone = prompt("Digite seu número com DDD (ex: 11988887777):");
                       if (!testPhone) return;
                       try {
-                        // Usar aviso_de_vencimento como teste real por padrão
+                        // Tentar o template configurado no portal como Inglês (en)
                         await axios.post('/api/send-whatsapp', { 
                           phone: testPhone, 
                           template: { 
@@ -1737,26 +1737,23 @@ const App: React.FC = () => {
                               {
                                 type: "body",
                                 parameters: [
-                                  { type: "text", text: "TESTE" },
-                                  { type: "text", text: "0000" },
-                                  { type: "text", text: "1,00" },
-                                  { type: "text", text: "CODIGO_PIX_TESTE" }
+                                  { type: "text", text: "TESTE" }
                                 ]
                               }
                             ]
                           } 
                         });
-                        alert("Solicitação enviada usando template real! Verifique seu WhatsApp.");
+                        alert("Sucesso! Template oficial 'aviso_de_vencimento' enviado.");
                       } catch (e: any) {
-                        try {
-                          // Fallback para hello_world se o primeiro falhar (caso seja número de teste)
-                          await axios.post('/api/send-whatsapp', { 
-                            phone: testPhone, 
-                            template: { name: "hello_world", language: { code: "en_US" } } 
-                          });
-                          alert("Enviado via Hello World (Número de teste)");
-                        } catch (e2: any) {
-                           alert("Erro no teste: " + (e2.response?.data?.error || e2.message));
+                        const errorMsg = e.response?.data?.error?.message || e.message;
+                        alert("Falha no template principal: " + errorMsg + "\n\nVerifique se o idioma 'English' e o Phone Number ID estão corretos.");
+                        
+                        // Fallback apenas para registro interno ou se for número de teste real
+                        if (errorMsg.includes("hello_world")) {
+                           await axios.post('/api/send-whatsapp', { 
+                             phone: testPhone, 
+                             template: { name: "hello_world", language: { code: "en_US" } } 
+                           }).catch(() => {});
                         }
                       }
                     }}
