@@ -110,7 +110,8 @@ const Chat: React.FC<ChatProps> = ({ clients, whatsappConfig }) => {
         message: textToSend
       });
 
-      // 2. Save locally in DB
+      // 2. Registro local removido (agora feito pelo backend em /api/send-whatsapp)
+      /* 
       const client = clients.find(c => c.phone.includes(activeChat.slice(-8)));
       await dataService.saveChatMessage({
         phone: activeChat,
@@ -118,6 +119,7 @@ const Chat: React.FC<ChatProps> = ({ clients, whatsappConfig }) => {
         direction: 'outbound',
         clientId: client?.id
       });
+      */
 
       // Local update (Real-time will also trigger but this is for instant feedback)
       // loadMessages(activeChat); // Optional if realtime is fast enough

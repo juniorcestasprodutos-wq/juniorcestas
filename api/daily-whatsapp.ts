@@ -175,6 +175,26 @@ export default async function handler(req: any, res: any) {
                             }
                         }
                     ).catch(err => console.error("Erro no follow-up cron:", err.response?.data || err.message));
+ 
+                    // --- Registro no Histórico do Chat ---
+                    try {
+                        await supabase.from('whatsapp_messages').insert({
+                            phone: formattedPhone,
+                            message: `[Cobrança Automática: aviso_de_vencimento]`,
+                            direction: 'outbound',
+                            client_id: item.client.id
+                        });
+
+                        await supabase.from('whatsapp_messages').insert({
+                            phone: formattedPhone,
+                            message: `*Copia e Cola PIX:* \n\n${pixCode}`,
+                            direction: 'outbound',
+                            client_id: item.client.id
+                        });
+                    } catch (logErr) {
+                        console.error("Erro ao registrar log no cron:", logErr);
+                    }
+                    // -------------------------------------
 
                     await supabase.from('installments').update({ pix_sent: true }).eq('id', item.inst.id);
                     successCount++;

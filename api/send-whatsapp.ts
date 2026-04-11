@@ -68,6 +68,36 @@ export default async function handler(req: any, res: any) {
             ).catch(err => console.error("Erro no follow-up:", err.response?.data || err.message));
         }
 
+        // --- Registro no Histórico do Chat ---
+        try {
+            const { data: client } = await supabase
+                .from('clients')
+                .select('id')
+                .ilike('phone', `%${formattedPhone.slice(-8)}%`)
+                .single();
+
+            const logEntry = {
+                phone: formattedPhone,
+                message: template ? `[Notificação Oficial: ${template.name}]` : message,
+                direction: 'outbound' as const,
+                client_id: client?.id || null
+            };
+
+            await supabase.from('whatsapp_messages').insert(logEntry);
+
+            if (pixCode) {
+                await supabase.from('whatsapp_messages').insert({
+                    phone: formattedPhone,
+                    message: `*Copia e Cola PIX:* \n\n${pixCode}`,
+                    direction: 'outbound',
+                    client_id: client?.id || null
+                });
+            }
+        } catch (logErr) {
+            console.error("Erro ao registrar no log:", logErr);
+        }
+        // -------------------------------------
+
         res.json({ status: "ok", data: response.data });
     } catch (error: any) {
         const metaError = error.response?.data?.error || { message: error.message };
