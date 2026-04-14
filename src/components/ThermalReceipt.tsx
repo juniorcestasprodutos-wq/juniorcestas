@@ -13,7 +13,7 @@ const ThermalReceipt: React.FC<ThermalReceiptProps> = ({ sale, client, installme
   return (
     <div className="thermal-receipt-container hidden print:block w-[58mm] mx-auto p-2 font-mono text-[10px] leading-tight text-black bg-white">
       <div className="text-center border-b border-dashed border-black pb-2 mb-2">
-        <h1 className="text-sm font-bold uppercase">Credi Fácil</h1>
+        <h1 className="text-sm font-bold uppercase">Junior Cestas e Produto</h1>
         <p>Gestão de Cobranças</p>
         <p>{new Date().toLocaleString('pt-BR')}</p>
       </div>

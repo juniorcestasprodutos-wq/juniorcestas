@@ -1517,7 +1517,7 @@ const App: React.FC = () => {
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
         <div className="bg-white rounded-[40px] w-full max-md p-10 shadow-2xl overflow-hidden relative border border-slate-100 scale-in-center">
           <div className="absolute top-0 right-0 p-8 opacity-5"><Lock size={120} /></div>
-          <div className="mb-10"><div className="bg-blue-600 w-16 h-16 rounded-2xl flex items-center justify-center mb-6 shadow-xl shadow-blue-200"><ReceiptText size={32} className="text-white" /></div><h1 className="text-4xl font-black text-slate-900 uppercase tracking-tighter leading-none mb-2">Credi Fácil</h1><p className="text-slate-500 font-bold uppercase tracking-widest text-xs">Gestão de Cobranças v2.0</p></div>
+          <div className="mb-10"><div className="bg-blue-600 w-16 h-16 rounded-2xl flex items-center justify-center mb-6 shadow-xl shadow-blue-200"><ReceiptText size={32} className="text-white" /></div><h1 className="text-4xl font-black text-slate-900 uppercase tracking-tighter leading-none mb-2">Junior Cestas e Produto</h1><p className="text-slate-500 font-bold uppercase tracking-widest text-xs">Gestão de Cobranças v2.0</p></div>
           <form onSubmit={handleLogin} className="space-y-6">
             <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-[0.2em] px-1">Usuário</label><div className="relative"><div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-300"><UserIcon size={18} /></div><input type="text" value={loginForm.username} onChange={e => setLoginForm({ ...loginForm, username: e.target.value })} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 pl-12 pr-4 text-sm font-black outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all" placeholder="Seu usuário" required /></div></div>
             <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-[0.2em] px-1">Senha</label><div className="relative"><div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-300"><Lock size={18} /></div><input type="password" value={loginForm.password} onChange={e => setLoginForm({ ...loginForm, password: e.target.value })} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 pl-12 pr-4 text-sm font-black outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all" placeholder="••••••••" required /></div></div>
@@ -2015,7 +2015,7 @@ const App: React.FC = () => {
             </div>
 
             <div className="hidden print:block mb-8 border-b-2 border-slate-900 pb-4">
-              <h1 className="text-3xl font-black uppercase tracking-tighter">Credi Fácil - Relatório Financeiro</h1>
+              <h1 className="text-3xl font-black uppercase tracking-tighter">Junior Cestas e Produto - Relatório Financeiro</h1>
               <div className="mt-4 grid grid-cols-2 gap-8 text-sm uppercase">
                 <div>
                   <p><strong>Tipo:</strong> {movementsFilter.type === 'RECEIVED' ? 'Movimentações de Recebimento' : 'Relatório de Atrasados'}</p>
@@ -2068,7 +2068,7 @@ const App: React.FC = () => {
               </div>
             </div>
             <div className="hidden print:block mt-12 pt-8 border-t border-slate-200 text-center text-[10px] uppercase font-bold text-slate-400">
-              Relatório Gerencial • Credi Fácil • Sistema de Gestão de Cobranças
+              Relatório Gerencial • Junior Cestas e Produto • Sistema de Gestão de Cobranças
             </div>
           </div>
         )}
@@ -2092,7 +2092,7 @@ const App: React.FC = () => {
             </div>
 
             <div className="hidden print:block mb-8 border-b-2 border-slate-900 pb-4">
-              <h1 className="text-3xl font-black uppercase tracking-tighter">Credi Fácil - Relatório de Comissões</h1>
+              <h1 className="text-3xl font-black uppercase tracking-tighter">Junior Cestas e Produto - Relatório de Comissões</h1>
               <div className="mt-4 grid grid-cols-2 gap-8 text-sm uppercase">
                 <div>
                   <p><strong>Período:</strong> {formatDate(commissionFilter.fromDate)} até {formatDate(commissionFilter.toDate)}</p>

@@ -93,7 +93,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeRole, currentUser, acti
             <div className="bg-blue-600 p-2 rounded-lg">
               <ReceiptText size={24} className="text-white" />
             </div>
-            <span className="text-xl font-bold tracking-tight">Credi Fácil</span>
+            <span className="text-xl font-bold tracking-tight">Junior Cestas e Produto</span>
           </div>
           <button 
             className="md:hidden p-1 hover:bg-slate-800 rounded"
