@@ -57,7 +57,6 @@ const App: React.FC = () => {
           dataService.getTasks(),
           dataService.getConfig()
         ]);
-        ]);
         setCollectors(u);
         setClients(c);
         setSales(s);
