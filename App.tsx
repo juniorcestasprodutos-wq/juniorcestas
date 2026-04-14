@@ -796,26 +796,34 @@ const App: React.FC = () => {
   };
 
   const handleSaveSale = async () => {
-    const total = parseFloat(newSale.totalAmount);
-    const down = parseFloat(newSale.downPayment || '0');
-    const count = parseInt(newSale.installmentsCount);
-    if (isNaN(total) || isNaN(count) || count <= 0 || !newSale.clientId) return alert("Preencha todos os campos da venda.");
-
     try {
-      let tokenType: 'PF' | 'PJ' | 'INFINITY' = 'PF';
+      if (!newSale.clientId || !newSale.totalAmount || !newSale.installmentsCount) {
+        alert("Por favor, preencha todos os campos obrigatórios.");
+        return;
+      }
 
+      const total = parseFloat(newSale.totalAmount);
+      const installmentsCount = parseInt(newSale.installmentsCount);
+      const downPayment = parseFloat(newSale.downPayment || '0');
+
+      // 1. Validar Estoque se houver produto selecionado
+      const productsInSale = products.filter(p => p.stockControlEnabled && newSale.description.toLowerCase().includes(p.name.toLowerCase()));
+      for (const p of productsInSale) {
+        if (p.stockQuantity <= 0) {
+          alert(`Produto ${p.name} está sem estoque!`);
+          return;
+        }
+      }
+
+      // 2. Lógica de Alocação (PF/PJ/INFINITY)
+      let tokenType: 'PF' | 'PJ' | 'INFINITY' = 'PF';
       if (mpConfig.allocationMode === 'INFINITY_ONLY') {
         tokenType = 'INFINITY';
       } else if (mpConfig.allocationMode === 'MP_ONLY') {
-        const currentPjVolume = sales
-          .filter(s => s.tokenType === 'PJ')
-          .reduce((acc, s) => acc + s.totalAmount, 0);
+        const currentPjVolume = sales.filter(s => s.tokenType === 'PJ').reduce((acc, s) => acc + s.totalAmount, 0);
         tokenType = (currentPjVolume + total) <= mpConfig.pjThreshold ? 'PJ' : 'PF';
       } else {
-        const currentPjVolume = sales
-          .filter(s => s.tokenType === 'PJ')
-          .reduce((acc, s) => acc + s.totalAmount, 0);
-
+        const currentPjVolume = sales.filter(s => s.tokenType === 'PJ').reduce((acc, s) => acc + s.totalAmount, 0);
         if ((currentPjVolume + total) <= mpConfig.pjThreshold) {
           tokenType = 'PJ';
         } else if (mpConfig.infinityPayEnabled) {
@@ -825,13 +833,14 @@ const App: React.FC = () => {
         }
       }
 
-      const installmentValue = (total - down) / count;
+      // 3. Gerar ID e Parcelas
       const nextId = sales.length > 0 ? Math.max(...sales.map(s => parseInt(s.id) || 0)) + 1 : 1001;
       const saleId = nextId.toString();
       const firstDue = new Date(newSale.firstDueDate);
-      const installments: Installment[] = Array.from({ length: count }, (_, i) => {
+      const installmentValue = (total - downPayment) / installmentsCount;
+      const installments: Installment[] = Array.from({ length: installmentsCount }, (_, i) => {
         const d = new Date(firstDue);
-        d.setDate(d.getDate() + (i * 30));
+        d.setMonth(d.getMonth() + i);
         return {
           id: `inst-${saleId}-${i + 1}`,
           saleId,
@@ -845,14 +854,14 @@ const App: React.FC = () => {
         };
       });
 
-      const saleData: Sale = {
+      // 4. Criar objeto de Venda
+      const sale: Sale = {
         id: saleId,
         clientId: newSale.clientId,
         collectorId: newSale.collectorId || 'loja',
-        collectorId: newSale.collectorId,
         deliveryPersonId: newSale.deliveryPersonId,
         date: new Date().toISOString().split('T')[0],
-        totalAmount,
+        totalAmount: total,
         downPayment,
         installmentsCount,
         description: newSale.description,
@@ -863,17 +872,18 @@ const App: React.FC = () => {
         items: [{
           description: newSale.description,
           quantity: 1,
-          unitPrice: totalAmount,
-          total: totalAmount,
-          productId: productsInSale[0]?.id // Vincula ao primeiro produto encontrado pelo nome (simplificação inicial)
+          unitPrice: total,
+          total: total,
+          productId: productsInSale[0]?.id
         }],
-        installments: [],
-        tokenType: 'PF'
+        installments,
+        tokenType,
+        status: 'PENDING'
       };
 
       await dataService.saveSale(sale);
       
-      // Registrar baixa de estoque se houver produto vinculado
+      // 5. Registrar baixa de estoque se houver produto vinculado
       if (sale.items[0]?.productId) {
         const prod = products.find(p => p.id === sale.items[0].productId);
         if (prod?.stockControlEnabled) {
@@ -887,11 +897,20 @@ const App: React.FC = () => {
         }
       }
 
+      // 6. Notificações
+      if (sale.deliveryPersonId) {
+        const worker = collectors.find(c => c.id === sale.deliveryPersonId);
+        if (worker?.phone) {
+          const client = clients.find(c => c.id === sale.clientId);
+          handleSendWhatsApp(worker.phone, `Junior Cestas e Produto: Olá ${worker.name}, você recebeu uma nova entrega. Cliente: ${client?.name}`);
+        }
+      }
+
       setSales(await dataService.getSales());
       setProducts(await dataService.getProducts());
       setIsAddSaleModalOpen(false);
       setNewSale({ ...newSale, description: '', totalAmount: '', downPayment: '', observations: '' });
-      alert("Venda lançada com sucesso!");
+      alert(`Venda #${saleId} lançada com sucesso!`);
     } catch (err) {
       console.error("Error saving sale", err);
       alert("Erro ao salvar venda.");
@@ -1225,18 +1244,7 @@ const App: React.FC = () => {
     );
   };
 
-  const handleUpdateSaleStatus = async (saleId: string, status: 'PENDING' | 'DELIVERED' | 'CANCELLED') => {
-    try {
-      const sale = sales.find(s => s.id === saleId);
-      if (sale) {
-        const updatedSale = { ...sale, status };
-        await dataService.saveSale(updatedSale);
-        setSales(prev => prev.map(s => s.id === saleId ? updatedSale : s));
-      }
-    } catch (err) {
-      console.error("Error updating sale status", err);
-    }
-  };
+
 
   const MasterInstallments = () => {
     const allInstallments = sales.flatMap(s => s.installments.map(i => ({ ...i, sale: s, client: clients.find(c => c.id === s.clientId) })));
