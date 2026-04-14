@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient';
-import { User, Client, Sale, Installment, Role, PaymentProviderConfig, Task } from '../types';
+import { User, Client, Sale, Installment, Role, PaymentProviderConfig, Task, Product, StockMovement } from '../types';
 
 export const dataService = {
     // Users

@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { Role, User, Client, Sale, Installment, SaleItem, Task } from './types';
+import { Role, User, Client, Sale, Installment, SaleItem, Task, Product, StockMovement } from './types';
 import { initialSales, mockCollectors, mockClients } from './mockData';
 import Layout from './components/Layout';
 import ReceiptForm from './components/ReceiptForm';

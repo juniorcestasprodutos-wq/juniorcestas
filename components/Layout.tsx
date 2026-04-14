@@ -21,7 +21,9 @@ import {
   Zap,
   Box,
   BarChart3 as StockIcon,
-  Package
+  Package,
+  MessageCircle,
+  Layers
 } from 'lucide-react';
 
 interface LayoutProps {
