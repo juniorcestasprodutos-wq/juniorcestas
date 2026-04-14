@@ -119,6 +119,7 @@ export const dataService = {
             assemblyValue: Number(s.assembly_value),
             observations: s.observations,
             items: s.sale_items.map((si: any) => ({
+                productId: si.product_id,
                 quantity: si.quantity,
                 description: si.description,
                 unitPrice: Number(si.unit_price),
@@ -164,6 +165,7 @@ export const dataService = {
         // Save items
         const itemsPayload = sale.items.map(item => ({
             sale_id: sale.id,
+            product_id: item.productId || null,
             quantity: item.quantity,
             description: item.description,
             unit_price: item.unitPrice,
@@ -210,7 +212,11 @@ export const dataService = {
             whatsappPhoneNumberId: data.whatsapp_phone_number_id,
             appsScriptUrl: data.apps_script_url,
             creditLimitEnabled: data.credit_limit_enabled,
-            creditLimitValue: Number(data.credit_limit_value)
+            creditLimitValue: Number(data.credit_limit_value),
+            whatsappAutoReplyEnabled: data.whatsapp_auto_reply_enabled,
+            whatsappAutoReplyMessage: data.whatsapp_auto_reply_message,
+            whatsappForwardingNumber: data.whatsapp_forwarding_number,
+            whatsappNotificationEnabled: data.whatsapp_notification_enabled
         };
     },
 
@@ -231,7 +237,11 @@ export const dataService = {
             whatsapp_phone_number_id: config.whatsappPhoneNumberId,
             apps_script_url: config.appsScriptUrl,
             credit_limit_enabled: config.creditLimitEnabled,
-            credit_limit_value: config.creditLimitValue
+            credit_limit_value: config.creditLimitValue,
+            whatsapp_auto_reply_enabled: config.whatsappAutoReplyEnabled,
+            whatsapp_auto_reply_message: config.whatsappAutoReplyMessage,
+            whatsapp_forwarding_number: config.whatsappForwardingNumber,
+            whatsapp_notification_enabled: config.whatsappNotificationEnabled
         }).eq('id', 'default');
         if (error) throw error;
     },
@@ -322,5 +332,83 @@ export const dataService = {
         });
 
         return uniqueChats;
+    },
+
+    // Products & Inventory
+    async getProducts(): Promise<Product[]> {
+        const { data, error } = await supabase.from('products').select('*').order('name');
+        if (error) throw error;
+        return data.map(p => ({
+            id: p.id,
+            name: p.name,
+            description: p.description,
+            price: Number(p.price),
+            stockQuantity: Number(p.stock_quantity),
+            stockControlEnabled: p.stock_control_enabled,
+            createdAt: p.created_at,
+            updatedAt: p.updated_at
+        }));
+    },
+
+    async saveProduct(product: Partial<Product>): Promise<void> {
+        const payload = {
+            name: product.name,
+            description: product.description,
+            price: product.price,
+            stock_quantity: product.stockQuantity,
+            stock_control_enabled: product.stockControlEnabled,
+            updated_at: new Date().toISOString()
+        };
+
+        if (product.id) {
+            const { error } = await supabase.from('products').update(payload).eq('id', product.id);
+            if (error) throw error;
+        } else {
+            const { error } = await supabase.from('products').insert(payload);
+            if (error) throw error;
+        }
+    },
+
+    async deleteProduct(productId: string): Promise<void> {
+        const { error } = await supabase.from('products').delete().eq('id', productId);
+        if (error) throw error;
+    },
+
+    async getStockMovements(productId?: string): Promise<StockMovement[]> {
+        let query = supabase.from('stock_movements').select('*').order('created_at', { ascending: false });
+        if (productId) query = query.eq('product_id', productId);
+        
+        const { data, error } = await query;
+        if (error) throw error;
+        return data.map(m => ({
+            id: m.id,
+            productId: m.product_id,
+            type: m.type as any,
+            quantity: Number(m.quantity),
+            saleId: m.sale_id,
+            notes: m.notes,
+            createdAt: m.created_at
+        }));
+    },
+
+    async saveStockMovement(movement: Partial<StockMovement>): Promise<void> {
+        // Inserir o movimento
+        const { error: movError } = await supabase.from('stock_movements').insert({
+            product_id: movement.productId,
+            type: movement.type,
+            quantity: movement.quantity,
+            sale_id: movement.saleId,
+            notes: movement.notes
+        });
+        if (movError) throw movError;
+
+        // Atualizar o saldo na tabela de produtos
+        const { data: product } = await supabase.from('products').select('stock_quantity').eq('id', movement.productId).single();
+        if (product) {
+            const multiplier = (movement.type === 'ENTRADA' || movement.type === 'RETORNO') ? 1 : -1;
+            const newStock = Number(product.stock_quantity) + (Number(movement.quantity) * multiplier);
+            
+            await supabase.from('products').update({ stock_quantity: newStock }).eq('id', movement.productId);
+        }
     }
 };

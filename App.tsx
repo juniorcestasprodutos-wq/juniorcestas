@@ -30,7 +30,7 @@ const App: React.FC = () => {
   });
 
   const [role, setRole] = useState<Role>(currentUser?.role || Role.MASTER);
-  const [activeTab, setActiveTab] = useState<string>(role === Role.MASTER ? 'dashboard' : 'route');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'clients' | 'sales' | 'route' | 'movements' | 'commissions' | 'reports' | 'config' | 'chat' | 'delivery' | 'products' | 'stock'>('dashboard');
 
   const [financialReportFilter, setFinancialReportFilter] = useState({
     period: 'MONTHLY' as 'WEEKLY' | 'MONTHLY' | 'DAILY',
@@ -57,11 +57,16 @@ const App: React.FC = () => {
           dataService.getTasks(),
           dataService.getConfig()
         ]);
+        ]);
         setCollectors(u);
         setClients(c);
         setSales(s);
         setTasks(t);
         setMpConfig(config);
+        
+        // Fetch products
+        const p = await dataService.getProducts();
+        setProducts(p);
       } catch (err) {
         console.error("Error loading data from Supabase", err);
       }
@@ -168,8 +173,19 @@ const App: React.FC = () => {
     whatsappPhoneNumberId: '',
     appsScriptUrl: '',
     creditLimitEnabled: false,
-    creditLimitValue: 0
+    creditLimitValue: 0,
+    whatsappAutoReplyEnabled: false,
+    whatsappAutoReplyMessage: '',
+    whatsappForwardingNumber: '',
+    whatsappNotificationEnabled: false
   });
+
+  const [products, setProducts] = useState<Product[]>([]);
+  const [stockMovements, setStockMovements] = useState<StockMovement[]>([]);
+  const [selectedProductForMovements, setSelectedProductForMovements] = useState<string | null>(null);
+  const [isProductModalOpen, setIsProductModalOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [isStockMovementModalOpen, setIsStockMovementModalOpen] = useState(false);
 
   const [isSyncing, setIsSyncing] = useState(false);
   const [printData, setPrintData] = useState<{ sale: Sale, client: Client, installment?: Installment, type: 'PAYMENT' | 'SALE' } | null>(null);
@@ -834,75 +850,49 @@ const App: React.FC = () => {
         id: saleId,
         clientId: newSale.clientId,
         collectorId: newSale.collectorId || 'loja',
+        collectorId: newSale.collectorId,
+        deliveryPersonId: newSale.deliveryPersonId,
         date: new Date().toISOString().split('T')[0],
-        items: [{ quantity: 1, description: newSale.description || 'Venda', unitPrice: total, total }],
-        totalAmount: total,
-        downPayment: down,
-        installmentsCount: count,
-        installments,
-        tokenType,
-        deliveryPersonId: newSale.deliveryPersonId || undefined,
-        status: 'PENDING',
+        totalAmount,
+        downPayment,
+        installmentsCount,
+        description: newSale.description,
+        firstDueDate: newSale.firstDueDate,
         isAssembly: newSale.isAssembly,
-        assemblerId: newSale.assemblerId || undefined,
-        observations: newSale.observations
+        assemblerId: newSale.assemblerId,
+        observations: newSale.observations,
+        items: [{
+          description: newSale.description,
+          quantity: 1,
+          unitPrice: totalAmount,
+          total: totalAmount,
+          productId: productsInSale[0]?.id // Vincula ao primeiro produto encontrado pelo nome (simplificação inicial)
+        }],
+        installments: [],
+        tokenType: 'PF'
       };
 
-      await dataService.saveSale(saleData);
-
-      // Notificação para Funcionários (Entrega/Montagem)
-      const notifyWorker = async (workerId: string, type: 'ENTREGA' | 'MONTAGEM') => {
-        const worker = collectors.find(c => c.id === workerId);
-        if (worker?.phone) {
-          const client = clients.find(c => c.id === saleData.clientId);
-          const msg = `Credi Fácil: Olá ${worker.name}, você recebeu uma nova ${type}. \n\nCliente: ${client?.name}\nEndereço: ${client?.address}, ${client?.neighborhood}\nID Venda: #${saleData.id}`;
-          await handleSendWhatsApp(worker.phone, msg);
+      await dataService.saveSale(sale);
+      
+      // Registrar baixa de estoque se houver produto vinculado
+      if (sale.items[0]?.productId) {
+        const prod = products.find(p => p.id === sale.items[0].productId);
+        if (prod?.stockControlEnabled) {
+          await dataService.saveStockMovement({
+            productId: prod.id,
+            type: 'VENDA',
+            quantity: 1,
+            saleId: sale.id,
+            notes: `Venda #${sale.id}`
+          });
         }
-      };
-
-      if (saleData.deliveryPersonId) notifyWorker(saleData.deliveryPersonId, 'ENTREGA');
-      if (saleData.isAssembly && saleData.assemblerId) notifyWorker(saleData.assemblerId, 'MONTAGEM');
-
-      // Limite de Crédito
-      if (mpConfig.creditLimitEnabled && total > (mpConfig.creditLimitValue || 0)) {
-        const client = clients.find(c => c.id === saleData.clientId);
-        await dataService.saveTask({
-          title: `⚠️ Autorização de Crédito: ${client?.name}`,
-          description: `Venda #${saleId} de ${formatCurrency(total)} excede o limite de ${formatCurrency(mpConfig.creditLimitValue || 0)}. Verificar score e histórico.`,
-          userId: 'MASTER', // Para o Master
-          status: 'PENDING',
-          relatedId: saleId
-        });
       }
 
-      if (newSale.observations) {
-        await dataService.saveTask({
-          title: `Tarefa da Venda #${saleId}`,
-          description: newSale.observations,
-          userId: currentUser?.id,
-          status: 'PENDING',
-          relatedId: saleId
-        });
-        const updatedTasks = await dataService.getTasks();
-        setTasks(updatedTasks);
-      }
-
-      const updatedSales = await dataService.getSales();
-      setSales(updatedSales);
-
-      alert(`Venda lançada com sucesso! Direcionada para: ${tokenType}`);
-      setNewSale(prev => ({ 
-        ...prev, 
-        totalAmount: '', 
-        downPayment: '', 
-        description: '', 
-        collectorId: (collectors[0]?.id || 'loja'), 
-        deliveryPersonId: '',
-        isAssembly: false,
-        assemblerId: '',
-        observations: ''
-      }));
+      setSales(await dataService.getSales());
+      setProducts(await dataService.getProducts());
       setIsAddSaleModalOpen(false);
+      setNewSale({ ...newSale, description: '', totalAmount: '', downPayment: '', observations: '' });
+      alert("Venda lançada com sucesso!");
     } catch (err) {
       console.error("Error saving sale", err);
       alert("Erro ao salvar venda.");
@@ -915,6 +905,39 @@ const App: React.FC = () => {
       alert("Configurações salvas com sucesso!");
     } catch (e) {
       alert("Erro ao salvar configurações.");
+    }
+  };
+
+  const handleUpdateSaleStatus = async (saleId: string, status: string) => {
+    try {
+      const sale = sales.find(s => s.id === saleId);
+      if (!sale) return;
+
+      const updatedSale = { ...sale, status };
+      await dataService.saveSale(updatedSale);
+      
+      // Se CANCELADO, devolve item ao estoque
+      if (status === 'CANCELLED') {
+        for (const item of (sale.items || [])) {
+          if (item.productId) {
+            const prod = products.find(p => p.id === item.productId);
+            if (prod?.stockControlEnabled) {
+              await dataService.saveStockMovement({
+                productId: item.productId,
+                type: 'RETORNO',
+                quantity: item.quantity,
+                saleId: sale.id,
+                notes: `Cancelamento de Venda #${sale.id}`
+              });
+            }
+          }
+        }
+      }
+
+      setSales(await dataService.getSales());
+      setProducts(await dataService.getProducts());
+    } catch (err) {
+      console.error("Error updating sale status", err);
     }
   };
 
@@ -1534,6 +1557,23 @@ const App: React.FC = () => {
               <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4"><div className="bg-green-100 p-4 rounded-lg text-green-600"><Wallet size={24} /></div><div><p className="text-sm text-gray-500 font-medium">Saldo Recebido</p><p className="text-2xl font-bold">{formatCurrency(stats.totalCollected)}</p></div></div>
               <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4"><div className="bg-orange-100 p-4 rounded-lg text-orange-600"><Calendar size={24} /></div><div><p className="text-sm text-gray-500 font-medium">Pendências Atuais</p><p className="text-2xl font-bold">{stats.pendingCount}</p></div></div>
             </div>
+
+            {/* Alertas de Estoque Baixo */}
+            {role === Role.MASTER && products.filter(p => p.stockControlEnabled && p.stockQuantity < 5).length > 0 && (
+              <div className="bg-red-50 border border-red-100 p-6 rounded-3xl flex flex-col gap-4">
+                <div className="flex items-center gap-2 text-red-600">
+                  <AlertTriangle size={20} />
+                  <h3 className="font-black uppercase tracking-tight text-sm">Alerta: Estoque Baixo</h3>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {products.filter(p => p.stockControlEnabled && p.stockQuantity < 5).map(p => (
+                    <div key={p.id} className="bg-white px-4 py-2 rounded-xl shadow-sm border border-red-100 text-xs font-bold text-red-700">
+                      {p.name}: <span className="font-black">{p.stockQuantity}</span> un
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100"><h3 className="text-lg font-bold mb-6">Receita por Cobrador</h3><div className="h-[300px]"><ResponsiveContainer width="100%" height="100%"><BarChart data={stats.dataByCollector}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="name" /><YAxis /><Tooltip formatter={(v: number) => formatCurrency(v)} /><Bar dataKey="valor" fill="#2563eb" radius={[4, 4, 0, 0]} /></BarChart></ResponsiveContainer></div></div>
               <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100"><h3 className="text-lg font-bold mb-6 flex items-center gap-2"><FileText className="text-slate-400" />Fichas Ativas</h3><div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">{[...sales].reverse().map((sale) => { const client = clients.find(c => c.id === sale.clientId); return (<div key={sale.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg group"><div><p className="font-bold text-sm">{client?.name}</p><p className="text-[10px] text-gray-400">Nº {sale.id} • {sale.installmentsCount}x</p></div><div className="flex items-center gap-4"><div className="text-right"><p className="text-sm font-bold">{formatCurrency(sale.totalAmount)}</p><p className="text-[10px] text-blue-600 font-bold uppercase tracking-widest text-[8px]">Master</p></div><button onClick={() => setSelectedSaleForView(sale)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-white rounded-lg transition-all"><Eye size={20} /></button></div></div>); })}</div></div>
@@ -1658,7 +1698,7 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {role === Role.MASTER && activeTab === 'settings' && (
+        {role === Role.MASTER && activeTab === 'config' && (
           <div className="space-y-6">
             <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
               <div className="flex items-center gap-4 mb-8">
@@ -1790,6 +1830,32 @@ const App: React.FC = () => {
                   <div>
                     <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">URL do Apps Script</label>
                     <input type="text" value={mpConfig.appsScriptUrl} onChange={e => setMpConfig({ ...mpConfig, appsScriptUrl: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" placeholder="https://script.google.com/macros/s/..." />
+                  </div>
+                </div>
+
+                <div className="space-y-6">
+                  <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest border-b pb-2 flex items-center gap-2"><MessageCircle size={18} /> Automação WhatsApp</h3>
+                  <div className="flex flex-col gap-4">
+                    <div className="flex items-center gap-3">
+                      <input type="checkbox" id="wa-auto-reply" checked={mpConfig.whatsappAutoReplyEnabled} onChange={e => setMpConfig({ ...mpConfig, whatsappAutoReplyEnabled: e.target.checked })} className="w-5 h-5 rounded accent-blue-600" />
+                      <label htmlFor="wa-auto-reply" className="text-sm font-black text-slate-600 uppercase tracking-widest cursor-pointer">Ativar Resposta Automática (24h)</label>
+                    </div>
+                    {mpConfig.whatsappAutoReplyEnabled && (
+                      <div>
+                        <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Mensagem de Resposta</label>
+                        <textarea value={mpConfig.whatsappAutoReplyMessage} onChange={e => setMpConfig({ ...mpConfig, whatsappAutoReplyMessage: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500 text-sm" rows={2} placeholder="Ex: Olá! Recebemos sua mensagem..." />
+                      </div>
+                    )}
+                    <div className="flex items-center gap-3">
+                      <input type="checkbox" id="wa-forward" checked={mpConfig.whatsappNotificationEnabled} onChange={e => setMpConfig({ ...mpConfig, whatsappNotificationEnabled: e.target.checked })} className="w-5 h-5 rounded accent-blue-600" />
+                      <label htmlFor="wa-forward" className="text-sm font-black text-slate-600 uppercase tracking-widest cursor-pointer">Encaminhar para Comercial</label>
+                    </div>
+                    {mpConfig.whatsappNotificationEnabled && (
+                      <div>
+                        <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Número Comercial (DDD + Número)</label>
+                        <input type="text" value={mpConfig.whatsappForwardingNumber} onChange={e => setMpConfig({ ...mpConfig, whatsappForwardingNumber: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" placeholder="5521987530286" />
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -2434,6 +2500,166 @@ const App: React.FC = () => {
         )}
 
         {selectedClientForDetails && <ClientDetailsModal client={selectedClientForDetails} />}
+
+        {activeTab === 'products' && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+              <div><h2 className="text-xl font-black uppercase tracking-tight">Catálogo de Produtos</h2><p className="text-sm text-gray-400 font-bold">{products.length} itens cadastrados</p></div>
+              <button onClick={() => { setEditingProduct(null); setIsProductModalOpen(true); }} className="flex items-center justify-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-blue-700 shadow-lg transition-all active:scale-95"><Plus size={20} /> Novo Produto</button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {products.map(p => (
+                <div key={p.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 group hover:shadow-md transition-all">
+                  <div className="flex justify-between items-start mb-4">
+                    <div className="bg-blue-50 p-3 rounded-xl text-blue-600"><Package size={24} /></div>
+                    <div className="flex gap-2">
+                      <button onClick={() => { setEditingProduct(p); setIsProductModalOpen(true); }} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg"><Edit2 size={16} /></button>
+                      <button onClick={async () => { if(confirm("Excluir produto?")) { await dataService.deleteProduct(p.id); setProducts(await dataService.getProducts()); } }} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg"><X size={16} /></button>
+                    </div>
+                  </div>
+                  <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight truncate">{p.name}</h3>
+                  <p className="text-sm text-slate-500 font-bold mb-4">{formatCurrency(p.price)}</p>
+                  <div className="flex justify-between items-center pt-4 border-t border-slate-50">
+                    <div className="flex flex-col">
+                      <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Estoque</span>
+                      <span className={`text-lg font-black ${p.stockQuantity <= 0 && p.stockControlEnabled ? 'text-red-600' : 'text-slate-900'}`}>{p.stockQuantity} un</span>
+                    </div>
+                    <span className={`text-[8px] font-black px-2 py-1 rounded-lg uppercase ${p.stockControlEnabled ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-400'}`}>
+                      {p.stockControlEnabled ? 'Controlado' : 'S/ Controle'}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {isProductModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-3xl w-full max-w-md p-8 shadow-2xl scale-in-center overflow-hidden">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-black uppercase tracking-tight">{editingProduct ? 'Editar Produto' : 'Novo Produto'}</h3>
+                <button onClick={() => setIsProductModalOpen(false)}><X size={24} className="text-slate-400" /></button>
+              </div>
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                const formData = new FormData(e.currentTarget);
+                const data = {
+                  id: editingProduct?.id,
+                  name: formData.get('name') as string,
+                  price: parseFloat(formData.get('price') as string),
+                  stockControlEnabled: formData.get('stockControlEnabled') === 'on',
+                  stockQuantity: editingProduct ? editingProduct.stockQuantity : parseFloat(formData.get('stockQuantity') as string || '0')
+                };
+                await dataService.saveProduct(data);
+                setProducts(await dataService.getProducts());
+                setIsProductModalOpen(false);
+              }} className="space-y-4">
+                <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Nome</label><input name="name" type="text" defaultValue={editingProduct?.name} required className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" /></div>
+                <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Preço Venda</label><input name="price" type="number" step="0.01" defaultValue={editingProduct?.price} required className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" /></div>
+                {!editingProduct && <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Saldo Inicial</label><input name="stockQuantity" type="number" defaultValue="0" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" /></div>}
+                <div className="flex items-center gap-3 pt-2">
+                  <input name="stockControlEnabled" type="checkbox" defaultChecked={editingProduct?.stockControlEnabled} className="w-5 h-5 rounded accent-blue-600" />
+                  <label className="text-sm font-black text-slate-600 uppercase tracking-widest">Ativar Controle de Estoque</label>
+                </div>
+                <button type="submit" className="w-full py-4 bg-blue-600 text-white font-black uppercase text-sm tracking-widest rounded-2xl shadow-lg mt-4">Salvar Produto</button>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'stock' && (
+          <div className="space-y-6">
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex justify-between items-center">
+              <div><h2 className="text-xl font-black uppercase tracking-tight">Gestão de Estoque</h2><p className="text-sm text-gray-400 font-bold">Resumo de saldos e movimentações</p></div>
+              <button 
+                onClick={() => setIsStockMovementModalOpen(true)}
+                className="flex items-center gap-2 bg-slate-900 text-white px-6 py-3 rounded-xl font-bold hover:bg-black shadow-lg transition-all active:scale-95"
+              >
+                <Plus size={20} /> Entrada / Saída Avulsa
+              </button>
+            </div>
+
+            <div className="bg-white rounded-3xl shadow-xl border border-slate-100 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead className="bg-slate-50 border-b border-slate-100">
+                    <tr>
+                      <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Produto</th>
+                      <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Saldo Atual</th>
+                      <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th>
+                      <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {products.map(p => (
+                      <tr key={p.id}>
+                        <td className="px-6 py-5"><span className="text-sm font-black text-slate-800 uppercase">{p.name}</span></td>
+                        <td className="px-6 py-5"><span className={`text-sm font-black ${p.stockQuantity < 5 && p.stockControlEnabled ? 'text-red-600' : 'text-slate-600'}`}>{p.stockQuantity} un</span></td>
+                        <td className="px-6 py-5"><span className={`text-[8px] font-black px-2 py-1 rounded-lg uppercase ${p.stockControlEnabled ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-400'}`}>{p.stockControlEnabled ? 'ATIVO' : 'DESATIVADO'}</span></td>
+                        <td className="px-6 py-5 text-right"><button onClick={async () => { const movs = await dataService.getStockMovements(p.id); setStockMovements(movs); setSelectedProductForMovements(p.id); }} className="text-blue-600 font-bold text-xs uppercase hover:underline">Ver Histórico</button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {selectedProductForMovements && (
+              <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100 animate-in fade-in slide-in-from-bottom-4">
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-lg font-black uppercase tracking-tight text-slate-900">Histórico: {products.find(p => p.id === selectedProductForMovements)?.name}</h3>
+                  <button onClick={() => setSelectedProductForMovements(null)} className="p-2 text-slate-400 hover:text-slate-600"><X size={20} /></button>
+                </div>
+                <div className="space-y-3">
+                  {stockMovements.map(m => (
+                    <div key={m.id} className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                      <div className="flex items-center gap-4">
+                        <div className={`p-2 rounded-lg font-black text-[10px] uppercase tracking-widest ${m.type === 'ENTRADA' ? 'bg-green-100 text-green-600' : m.type === 'RETORNO' ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-600'}`}>{m.type}</div>
+                        <div><p className="text-sm font-black text-slate-800 uppercase">{formatDate(m.createdAt!)}</p><p className="text-[10px] text-slate-400 font-bold">{m.notes || (m.saleId ? `Ficha #${m.saleId}` : '')}</p></div>
+                      </div>
+                      <span className={`text-lg font-black ${m.type === 'ENTRADA' || m.type === 'RETORNO' ? 'text-green-600' : 'text-red-600'}`}>
+                        {m.type === 'ENTRADA' || m.type === 'RETORNO' ? '+' : '-'}{m.quantity}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {isStockMovementModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-3xl w-full max-w-md p-8 shadow-2xl scale-in-center">
+              <div className="flex justify-between items-center mb-6"><h3 className="text-xl font-black uppercase tracking-tight">Movimentação Manual</h3><button onClick={() => setIsStockMovementModalOpen(false)}><X size={24} className="text-slate-400" /></button></div>
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                const formData = new FormData(e.currentTarget);
+                const productId = formData.get('productId') as string;
+                const type = formData.get('type') as any;
+                const quantity = parseFloat(formData.get('quantity') as string);
+                
+                await dataService.saveStockMovement({ productId, type, quantity, notes: 'Ajuste Manual' });
+                setProducts(await dataService.getProducts());
+                setIsStockMovementModalOpen(false);
+              }} className="space-y-4">
+                <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Produto</label>
+                  <select name="productId" required className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-sm uppercase"><option value="">Selecione...</option>{products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Tipo</label>
+                    <select name="type" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-sm uppercase"><option value="ENTRADA">Entrada</option><option value="SAÍDA">Saída</option></select>
+                  </div>
+                  <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Quantidade</label>
+                    <input name="quantity" type="number" required defaultValue="1" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500 font-bold" />
+                  </div>
+                </div>
+                <button type="submit" className="w-full py-4 bg-slate-900 text-white font-black uppercase text-sm tracking-widest rounded-2xl shadow-lg mt-4">Confirmar Movimentação</button>
+              </form>
+            </div>
+          </div>
+        )}
       </Layout>
       {printData && (
         <ThermalReceipt

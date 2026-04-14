@@ -40,10 +40,32 @@ export interface Client {
 }
 
 export interface SaleItem {
+  productId?: string;
   quantity: number;
   description: string;
   unitPrice: number;
   total: number;
+}
+
+export interface Product {
+  id: string;
+  name: string;
+  description?: string;
+  price: number;
+  stockQuantity: number;
+  stockControlEnabled: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface StockMovement {
+  id: string;
+  productId: string;
+  type: 'ENTRADA' | 'SAÍDA' | 'VENDA' | 'RETORNO';
+  quantity: number;
+  saleId?: string;
+  notes?: string;
+  createdAt?: string;
 }
 
 export interface Installment {
@@ -79,6 +101,10 @@ export interface PaymentProviderConfig {
   appsScriptUrl?: string;
   creditLimitEnabled?: boolean;
   creditLimitValue?: number;
+  whatsappAutoReplyEnabled?: boolean;
+  whatsappAutoReplyMessage?: string;
+  whatsappForwardingNumber?: string;
+  whatsappNotificationEnabled?: boolean;
 }
 
 export interface Sale {

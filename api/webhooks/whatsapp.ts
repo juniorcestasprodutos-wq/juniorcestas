@@ -91,7 +91,7 @@ export default async function handler(req: any, res: any) {
             // Tenta achar o cliente pelo telefone
             const { data: client } = await supabase
               .from('clients')
-              .select('id')
+              .select('id, name')
               .ilike('phone', `%${from.slice(-8)}%`) // Busca aproximada pelos últimos 8 dígitos
               .single();
 
@@ -103,6 +103,53 @@ export default async function handler(req: any, res: any) {
               media_type: mediaType,
               client_id: client?.id || null
             });
+
+            // --- NOVO: Encaminhamento e Resposta Automática ---
+            const { data: config } = await supabase.from('config').select('*').eq('id', 'default').single();
+            
+            if (config) {
+              // 1. Encaminhamento para o Comercial
+              if (config.whatsapp_notification_enabled && config.whatsapp_forwarding_number) {
+                const notificationText = `*Aviso de Mensagem:* \nCliente: ${client?.name || from}\n\n${content || '[Arquivo de Mídia]'}`;
+                await axios.post(`https://graph.facebook.com/v21.0/${config.whatsapp_phone_number_id}/messages`, {
+                  messaging_product: "whatsapp",
+                  to: config.whatsapp_forwarding_number.replace(/\D/g, ''),
+                  type: "text",
+                  text: { body: notificationText }
+                }, { headers: { Authorization: `Bearer ${config.whatsapp_api_token}` } }).catch(e => console.error("Erro encaminhamento:", e));
+              }
+
+              // 2. Resposta Automática (1x a cada 24h)
+              if (config.whatsapp_auto_reply_enabled) {
+                const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+                const { data: recentMsgs } = await supabase
+                  .from('whatsapp_messages')
+                  .select('id')
+                  .eq('phone', from)
+                  .eq('direction', 'outbound')
+                  .gt('created_at', twentyFourHoursAgo)
+                  .limit(1);
+
+                if (!recentMsgs || recentMsgs.length === 0) {
+                  const replyText = config.whatsapp_auto_reply_message || "Olá! Recebemos sua mensagem.";
+                  
+                  await axios.post(`https://graph.facebook.com/v21.0/${config.whatsapp_phone_number_id}/messages`, {
+                    messaging_product: "whatsapp",
+                    to: from,
+                    type: "text",
+                    text: { body: replyText }
+                  }, { headers: { Authorization: `Bearer ${config.whatsapp_api_token}` } });
+
+                  // Registrar a resposta no chat
+                  await supabase.from('whatsapp_messages').insert({
+                    phone: from,
+                    message: replyText,
+                    direction: 'outbound',
+                    client_id: client?.id || null
+                  });
+                }
+              }
+            }
           }
         }
       }

@@ -18,8 +18,10 @@ import {
   Contact,
   Settings,
   Truck,
-  Layers,
-  MessageCircle
+  Zap,
+  Box,
+  BarChart3 as StockIcon,
+  Package
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -49,9 +51,11 @@ const Layout: React.FC<LayoutProps> = ({ children, activeRole, currentUser, acti
     { id: 'delivery', label: 'Entregas', icon: <Truck size={20} /> },
     { id: 'movements', label: 'Movimentações', icon: <FileSearch size={20} /> },
     { id: 'commissions', label: 'Comissões', icon: <DollarSign size={20} /> },
-    { id: 'future', label: 'Futuras', icon: <CalendarClock size={20} /> },
-    { id: 'reports', label: 'Financeiro', icon: <BarChart3 size={20} /> },
-    { id: 'tasks', label: 'Painel de Tarefas', icon: <Layers size={20} /> },
+    {id: 'future', label: 'Futuras', icon: <CalendarClock size={20} />},
+    {id: 'reports', label: 'Financeiro', icon: <BarChart3 size={20} />},
+    {id: 'products', label: 'Produtos', icon: <Package size={20} />},
+    {id: 'stock', label: 'Estoque', icon: <Box size={20} />},
+    {id: 'tasks', label: 'Painel de Tarefas', icon: <Layers size={20} />},
     { id: 'settings', label: 'Configurações', icon: <Settings size={20} /> },
   ] : activeRole === Role.DELIVERY ? [
     { id: 'delivery', label: 'Minhas Entregas', icon: <Truck size={20} /> },
@@ -157,6 +161,8 @@ const Layout: React.FC<LayoutProps> = ({ children, activeRole, currentUser, acti
               {activeTab === 'future' && 'Cobranças Futuras'}
               {activeTab === 'movements' && 'Extrato de Movimentações'}
               {activeTab === 'chat' && 'Central de Atendimento WhatsApp'}
+              {activeTab === 'products' && 'Catálogo de Produtos'}
+              {activeTab === 'stock' && 'Gestão de Estoque'}
             </h1>
           </div>
           <div className="hidden sm:block text-xs text-gray-400 font-bold uppercase tracking-wider">
