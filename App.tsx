@@ -12,7 +12,7 @@ import {
   Printer, AlertCircle, TrendingUp, UserPlus, Phone, Hash,
   CalendarClock, ArrowRight, Route as RouteIcon, Lock, User as UserIcon, Edit2, Power, Contact,
   History, CreditCard, ChevronRight, AlertTriangle, Filter, Settings, RefreshCw, QrCode,
-  FileSpreadsheet, Truck, Check, Layers, Zap
+  FileSpreadsheet, Truck, Check, Layers, Zap, Package
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, AreaChart, Area } from 'recharts';
 import axios from 'axios';
@@ -2556,7 +2556,7 @@ const App: React.FC = () => {
                   name: formData.get('name') as string,
                   price: parseFloat(formData.get('price') as string),
                   stockControlEnabled: formData.get('stockControlEnabled') === 'on',
-                  stockQuantity: editingProduct ? editingProduct.stockQuantity : parseFloat(formData.get('stockQuantity') as string || '0')
+                  stockQuantity: editingProduct ? editingProduct.stockQuantity : parseFloat(formData.get('stockQuantity') as string || '0') || 0
                 };
                 await dataService.saveProduct(data);
                 setProducts(await dataService.getProducts());
