@@ -43,36 +43,63 @@ const Layout: React.FC<LayoutProps> = ({ children, activeRole, currentUser, acti
     setIsMenuOpen(false);
   };
 
-  const navItems = activeRole === Role.MASTER ? [
-    { id: 'dashboard', label: 'Painel Master', icon: <LayoutDashboard size={20} /> },
-    { id: 'chat', label: 'Chat WhatsApp', icon: <MessageCircle size={20} /> },
-    { id: 'master_installments', label: 'Parcelas', icon: <Layers size={20} /> },
-    { id: 'collectors', label: 'Equipe', icon: <Users size={20} /> },
-    { id: 'clients', label: 'Clientes', icon: <Contact size={20} /> },
-    { id: 'sales', label: 'Vendas', icon: <ReceiptText size={20} /> },
-    { id: 'delivery', label: 'Entregas', icon: <Truck size={20} /> },
-    { id: 'movements', label: 'Movimentações', icon: <FileSearch size={20} /> },
-    { id: 'commissions', label: 'Comissões', icon: <DollarSign size={20} /> },
-    {id: 'future', label: 'Futuras', icon: <CalendarClock size={20} />},
-    {id: 'reports', label: 'Financeiro', icon: <BarChart3 size={20} />},
-    {id: 'products', label: 'Produtos', icon: <Package size={20} />},
-    {id: 'stock', label: 'Estoque', icon: <Box size={20} />},
-    {id: 'tasks', label: 'Painel de Tarefas', icon: <Layers size={20} />},
-    { id: 'config', label: 'Configurações', icon: <Settings size={20} /> },
-  ] : activeRole === Role.DELIVERY ? [
-    { id: 'delivery', label: 'Minhas Entregas', icon: <Truck size={20} /> },
-    { id: 'tasks', label: 'Minhas Tarefas', icon: <Layers size={20} /> },
-  ] : activeRole === Role.ASSEMBLER ? [
-    { id: 'assembler', label: 'Minhas Montagens', icon: <Truck size={20} /> },
-    { id: 'tasks', label: 'Minhas Tarefas', icon: <Layers size={20} /> },
-  ] : [
-    { id: 'route', label: 'Rota de Hoje', icon: <Route size={20} /> },
-    { id: 'chat', label: 'Chat WhatsApp', icon: <MessageCircle size={20} /> },
-    { id: 'tasks', label: 'Minhas Tarefas', icon: <Layers size={20} /> },
-    { id: 'future', label: 'Futuras', icon: <CalendarClock size={20} /> },
-    { id: 'sales', label: 'Vendas', icon: <ReceiptText size={20} /> },
-    { id: 'movements', label: 'Movimentações', icon: <FileSearch size={20} /> },
-  ];
+  const getNavItems = () => {
+    if (!currentUser) return [];
+    const roles = currentUser.roles || [activeRole];
+    
+    if (roles.includes(Role.MASTER)) {
+      return [
+        { id: 'dashboard', label: 'Painel Master', icon: <LayoutDashboard size={20} /> },
+        { id: 'chat', label: 'Chat WhatsApp', icon: <MessageCircle size={20} /> },
+        { id: 'master_installments', label: 'Parcelas', icon: <Layers size={20} /> },
+        { id: 'collectors', label: 'Equipe', icon: <Users size={20} /> },
+        { id: 'clients', label: 'Clientes', icon: <Contact size={20} /> },
+        { id: 'sales', label: 'Vendas', icon: <ReceiptText size={20} /> },
+        { id: 'delivery', label: 'Entregas', icon: <Truck size={20} /> },
+        { id: 'movements', label: 'Movimentações', icon: <FileSearch size={20} /> },
+        { id: 'commissions', label: 'Comissões', icon: <DollarSign size={20} /> },
+        { id: 'future', label: 'Futuras', icon: <CalendarClock size={20} /> },
+        { id: 'reports', label: 'Financeiro', icon: <BarChart3 size={20} /> },
+        { id: 'products', label: 'Produtos', icon: <Package size={20} /> },
+        { id: 'stock', label: 'Estoque', icon: <Box size={20} /> },
+        { id: 'tasks', label: 'Painel de Tarefas', icon: <Layers size={20} /> },
+        { id: 'config', label: 'Configurações', icon: <Settings size={20} /> },
+      ];
+    }
+
+    const items: { id: string; label: string; icon: React.ReactNode }[] = [];
+    const seen = new Set<string>();
+
+    const addItem = (item: { id: string; label: string; icon: React.ReactNode }) => {
+      if (!seen.has(item.id)) {
+        items.push(item);
+        seen.add(item.id);
+      }
+    };
+
+    if (roles.includes(Role.COLLECTOR)) {
+      addItem({ id: 'route', label: 'Rota de Hoje', icon: <Route size={20} /> });
+      addItem({ id: 'chat', label: 'Chat WhatsApp', icon: <MessageCircle size={20} /> });
+      addItem({ id: 'future', label: 'Futuras', icon: <CalendarClock size={20} /> });
+      addItem({ id: 'sales', label: 'Vendas', icon: <ReceiptText size={20} /> });
+      addItem({ id: 'movements', label: 'Movimentações', icon: <FileSearch size={20} /> });
+    }
+
+    if (roles.includes(Role.DELIVERY)) {
+      addItem({ id: 'delivery', label: 'Minhas Entregas', icon: <Truck size={20} /> });
+    }
+
+    if (roles.includes(Role.ASSEMBLER)) {
+      addItem({ id: 'assembler', label: 'Minhas Montagens', icon: <Zap size={20} /> });
+    }
+
+    // Always add tasks for non-masters if they have any of the specific roles
+    addItem({ id: 'tasks', label: 'Minhas Tarefas', icon: <Layers size={20} /> });
+
+    return items;
+  };
+
+  const navItems = getNavItems();
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-gray-50 overflow-hidden print:bg-white">

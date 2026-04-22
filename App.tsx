@@ -12,7 +12,7 @@ import {
   Printer, AlertCircle, TrendingUp, UserPlus, Phone, Hash,
   CalendarClock, ArrowRight, Route as RouteIcon, Lock, User as UserIcon, Edit2, Power, Contact,
   History, CreditCard, ChevronRight, AlertTriangle, Filter, Settings, RefreshCw, QrCode,
-  FileSpreadsheet, Truck, Check, Layers, Zap, Package, MessageCircle
+  FileSpreadsheet, Truck, Check, Layers, Zap, Package, MessageCircle, Trash2
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, AreaChart, Area } from 'recharts';
 import axios from 'axios';
@@ -29,7 +29,7 @@ const App: React.FC = () => {
     return saved ? JSON.parse(saved) : null;
   });
 
-  const [role, setRole] = useState<Role>(currentUser?.role || Role.MASTER);
+  const [role, setRole] = useState<Role>(currentUser?.roles?.[0] || Role.MASTER);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'clients' | 'sales' | 'route' | 'movements' | 'commissions' | 'reports' | 'config' | 'chat' | 'delivery' | 'products' | 'stock'>('dashboard');
 
   const [financialReportFilter, setFinancialReportFilter] = useState({
@@ -84,17 +84,18 @@ const App: React.FC = () => {
 
   const [clientSearch, setClientSearch] = useState('');
   const [saleSearch, setSaleSearch] = useState('');
-  const [newCollector, setNewCollector] = useState({
+  const INITIAL_USER_STATE = {
     name: '',
     phone: '',
     username: '',
     password: '',
-    role: Role.COLLECTOR as Role,
+    roles: [Role.COLLECTOR] as Role[],
     active: true,
     saleCommissionRate: 0,
     collectionCommissionRate: 0
-  });
-  const [newClient, setNewClient] = useState({
+  };
+
+  const INITIAL_CLIENT_STATE = {
     name: '',
     phone: '',
     address: '',
@@ -109,21 +110,71 @@ const App: React.FC = () => {
     housePhoto: '',
     referralClientId: '',
     coordinates: { lat: 0, lng: 0 }
-  });
-  const [newSale, setNewSale] = useState({
-    clientId: clients[0]?.id || '',
-    collectorId: collectors[0]?.id || '',
+  };
+
+  const INITIAL_SALE_STATE = {
+    clientId: '',
+    collectorId: 'loja',
     deliveryPersonId: '',
     totalAmount: '',
     downPayment: '',
     installmentsCount: '10',
     description: '',
-    productId: '',
+    items: [] as SaleItem[],
     firstDueDate: new Date(new Date().setDate(new Date().getDate() + 30)).toISOString().split('T')[0],
     isAssembly: false,
     assemblerId: '',
     observations: ''
-  });
+  };
+
+  const [newCollector, setNewCollector] = useState(INITIAL_USER_STATE);
+  const [newClient, setNewClient] = useState(INITIAL_CLIENT_STATE);
+  const [newSale, setNewSale] = useState(INITIAL_SALE_STATE);
+
+  // States para adição de item individual na venda
+  const [selectedProductForItem, setSelectedProductForItem] = useState('');
+  const [selectedProductQty, setSelectedProductQty] = useState('1');
+
+  const handleAddItemToSale = () => {
+    const product = products.find(p => p.id === selectedProductForItem);
+    if (!product) return alert("Selecione um produto");
+    
+    const qty = parseInt(selectedProductQty) || 1;
+    const newItem: SaleItem = {
+      productId: product.id,
+      quantity: qty,
+      description: product.name,
+      unitPrice: product.price,
+      total: product.price * qty
+    };
+
+    const updatedItems = [...newSale.items, newItem];
+    const totalVenda = updatedItems.reduce((sum, item) => sum + item.total, 0);
+    const descGeral = updatedItems.map(i => `${i.description} (${i.quantity}x)`).join(", ");
+
+    setNewSale({
+      ...newSale,
+      items: updatedItems,
+      totalAmount: totalVenda.toString(),
+      description: descGeral
+    });
+
+    setSelectedProductForItem('');
+    setSelectedProductQty('1');
+  };
+
+  const handleRemoveItemFromSale = (index: number) => {
+    const updatedItems = newSale.items.filter((_, i) => i !== index);
+    const totalVenda = updatedItems.reduce((sum, item) => sum + item.total, 0);
+    const descGeral = updatedItems.map(i => `${i.description} (${i.quantity}x)`).join(", ");
+
+    setNewSale({
+      ...newSale,
+      items: updatedItems,
+      totalAmount: totalVenda.toString(),
+      description: descGeral
+    });
+  };
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isTaskPanelOpen, setIsTaskPanelOpen] = useState(false);
@@ -197,7 +248,7 @@ const App: React.FC = () => {
 
   // Automatic Collector Assignment Logic
   useEffect(() => {
-    if (role !== Role.MASTER) return;
+    if (!currentUser?.roles?.includes(Role.MASTER)) return;
 
     const runAutoReassign = async () => {
       const today = new Date().toISOString().split('T')[0];
@@ -241,12 +292,13 @@ const App: React.FC = () => {
     if (sales.length > 0 && collectors.length > 0) {
       runAutoReassign();
     }
-  }, [sales.length, collectors.length, mpConfig.autoReassignDays, role]);
+  }, [sales.length, collectors.length, mpConfig.autoReassignDays, currentUser?.roles]);
 
   useEffect(() => {
     if (currentUser) {
-      setRole(currentUser.role);
-      setActiveTab(currentUser.role === Role.MASTER ? 'dashboard' : 'route');
+      const isMaster = currentUser.roles?.includes(Role.MASTER);
+      setRole(isMaster ? Role.MASTER : (currentUser.roles?.[0] || Role.COLLECTOR));
+      setActiveTab(isMaster ? 'dashboard' : 'route');
     }
   }, [currentUser]);
 
@@ -278,8 +330,9 @@ const App: React.FC = () => {
     setLoginError('');
     const masterUser = collectors.find(c => c.username === 'master' && c.password === '@admin2026');
     if (loginForm.username === 'master' && loginForm.password === '@admin2026') {
-      const user: User = masterUser || { id: 'master', name: 'Administrador', phone: '', role: Role.MASTER, active: true };
+      const user: User = masterUser || { id: 'master', name: 'Administrador', phone: '', roles: [Role.MASTER], active: true };
       setCurrentUser(user);
+      setRole(Role.MASTER);
       localStorage.setItem('credi_facil_user', JSON.stringify(user));
       return;
     }
@@ -290,6 +343,7 @@ const App: React.FC = () => {
         return;
       }
       setCurrentUser(collector);
+      setRole(collector.roles?.[0] || Role.COLLECTOR);
       localStorage.setItem('credi_facil_user', JSON.stringify(collector));
       return;
     }
@@ -300,6 +354,26 @@ const App: React.FC = () => {
     setCurrentUser(null);
     localStorage.removeItem('credi_facil_user');
     setLoginForm({ username: '', password: '' });
+  };
+
+  const handleDeleteClient = async (clientId: string) => {
+    if (!confirm('Deseja realmente EXCLUIR este cliente permanentemente? Isso apagará todos os dados vinculados.')) return;
+    
+    // Safety check: verify if client has sales
+    const clientSales = sales.filter(s => s.clientId === clientId);
+    if (clientSales.length > 0) {
+      alert('Não é possível excluir um cliente que possui vendas vinculadas. Delete as vendas primeiro ou desative o cliente.');
+      return;
+    }
+
+    try {
+      await dataService.deleteClient(clientId);
+      const updated = await dataService.getClients();
+      setClients(updated);
+    } catch (err) {
+      console.error("Error deleting client", err);
+      alert("Erro ao excluir cliente.");
+    }
   };
 
   const stats = useMemo(() => {
@@ -325,7 +399,7 @@ const App: React.FC = () => {
   }, [clients, clientSearch]);
 
   const filteredSales = useMemo(() => {
-    const activeCollectorId = currentUser?.role === Role.COLLECTOR ? currentUser.id : null;
+    const activeCollectorId = currentUser?.roles?.includes(Role.COLLECTOR) ? currentUser.id : null;
     return sales.filter(s => {
       const client = clients.find(c => c.id === s.clientId);
       const matchesSearch = s.id.includes(saleSearch) || (client?.name.toLowerCase().includes(saleSearch.toLowerCase()));
@@ -337,7 +411,7 @@ const App: React.FC = () => {
   const todayRoute = useMemo(() => {
     const todayStr = new Date().toISOString().split('T')[0];
     const items = [];
-    const activeCollectorId = currentUser?.role === Role.COLLECTOR ? currentUser.id : null;
+    const activeCollectorId = currentUser?.roles?.includes(Role.COLLECTOR) ? currentUser.id : null;
     for (const sale of sales) {
       if (role === Role.MASTER || sale.collectorId === activeCollectorId) {
         for (const inst of sale.installments) {
@@ -354,7 +428,7 @@ const App: React.FC = () => {
   const futureRoute = useMemo(() => {
     const todayStr = new Date().toISOString().split('T')[0];
     const items = [];
-    const activeCollectorId = currentUser?.role === Role.COLLECTOR ? currentUser.id : null;
+    const activeCollectorId = currentUser?.roles?.includes(Role.COLLECTOR) ? currentUser.id : null;
     for (const sale of sales) {
       if (role === Role.MASTER || sale.collectorId === activeCollectorId) {
         for (const inst of sale.installments) {
@@ -371,7 +445,7 @@ const App: React.FC = () => {
   const filteredMovements = useMemo(() => {
     const items: any[] = [];
     const today = new Date().toISOString().split('T')[0];
-    const activeCollectorId = currentUser?.role === Role.COLLECTOR ? currentUser.id : null;
+    const activeCollectorId = currentUser?.roles?.includes(Role.COLLECTOR) ? currentUser.id : null;
     sales.forEach(sale => {
       const isAllowedCollector = role === Role.MASTER
         ? (movementsFilter.collectorId === 'ALL' || sale.collectorId === movementsFilter.collectorId)
@@ -408,20 +482,12 @@ const App: React.FC = () => {
       await dataService.saveUser(collectorData as User);
       const updatedCollectors = await dataService.getUsers();
       setCollectors(updatedCollectors);
-      setNewCollector({
-        name: '',
-        phone: '',
-        username: '',
-        password: '',
-        active: true,
-        saleCommissionRate: 0,
-        collectionCommissionRate: 0
-      });
+      setNewCollector(INITIAL_USER_STATE);
       setEditingCollectorId(null);
       setIsAddCollectorModalOpen(false);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error saving collector", err);
-      alert("Erro ao salvar cobrador.");
+      alert("Erro ao salvar colaborador: " + (err.message || 'Erro desconhecido'));
     }
   };
 
@@ -431,11 +497,11 @@ const App: React.FC = () => {
       phone: c.phone,
       username: c.username || '',
       password: c.password || '',
-      role: c.role || Role.COLLECTOR,
+      roles: c.roles || [Role.COLLECTOR],
       active: c.active !== false,
       saleCommissionRate: c.saleCommissionRate || 0,
       collectionCommissionRate: c.collectionCommissionRate || 0
-    });
+    } as any);
     setEditingCollectorId(c.id);
     setIsAddCollectorModalOpen(true);
   };
@@ -460,17 +526,17 @@ const App: React.FC = () => {
       const updatedClients = await dataService.getClients();
       setClients(updatedClients);
       setNewSale(prev => ({ ...prev, clientId }));
-      setNewClient({ name: '', phone: '', address: '', city: '', state: '', cpf: '', rg: '' });
+      setNewClient(INITIAL_CLIENT_STATE);
       setIsAddClientModalOpen(false);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error saving client", err);
-      alert("Erro ao salvar cliente.");
+      alert("Erro ao salvar cliente: " + (err.message || 'Erro desconhecido'));
     }
   };
 
   const filteredCommissions = useMemo(() => {
     const items: any[] = [];
-    const activeCollectorId = currentUser?.role === Role.COLLECTOR ? currentUser.id : null;
+    const activeCollectorId = currentUser?.roles?.includes(Role.COLLECTOR) ? currentUser.id : null;
 
     sales.forEach(sale => {
       const collector = collectors.find(c => c.id === sale.collectorId);
@@ -856,7 +922,7 @@ const App: React.FC = () => {
         };
       });
 
-      // 4. Criar objeto de Venda
+      // 4. Montar objeto da venda
       const sale: Sale = {
         id: saleId,
         clientId: newSale.clientId,
@@ -867,35 +933,30 @@ const App: React.FC = () => {
         downPayment,
         installmentsCount,
         description: newSale.description,
-        firstDueDate: newSale.firstDueDate,
-        isAssembly: newSale.isAssembly,
-        assemblerId: newSale.assemblerId,
-        observations: newSale.observations,
-        items: [{
-          description: newSale.description,
-          quantity: 1,
-          unitPrice: total,
-          total: total,
-          productId: newSale.productId || null
-        }],
+        items: newSale.items,
         installments,
         tokenType,
-        status: 'PENDING'
+        status: 'PENDING',
+        isAssembly: newSale.isAssembly,
+        assemblerId: newSale.assemblerId,
+        observations: newSale.observations
       };
 
       await dataService.saveSale(sale);
       
-      // 5. Registrar baixa de estoque se houver produto vinculado
-      if (sale.items[0]?.productId) {
-        const prod = products.find(p => p.id === sale.items[0].productId);
-        if (prod?.stockControlEnabled) {
-          await dataService.saveStockMovement({
-            productId: prod.id,
-            type: 'VENDA',
-            quantity: 1,
-            saleId: sale.id,
-            notes: `Venda #${sale.id}`
-          });
+      // 5. Registrar baixa de estoque para cada item que possuir produto vinculado
+      for (const item of sale.items) {
+        if (item.productId) {
+          const prod = products.find(p => p.id === item.productId);
+          if (prod?.stockControlEnabled) {
+            await dataService.saveStockMovement({
+              productId: prod.id,
+              type: 'VENDA',
+              quantity: item.quantity,
+              saleId: sale.id,
+              notes: `Venda #${sale.id}`
+            });
+          }
         }
       }
 
@@ -911,11 +972,11 @@ const App: React.FC = () => {
       setSales(await dataService.getSales());
       setProducts(await dataService.getProducts());
       setIsAddSaleModalOpen(false);
-      setNewSale({ ...newSale, description: '', totalAmount: '', downPayment: '', observations: '', productId: '' });
+      setNewSale(INITIAL_SALE_STATE);
       alert(`Venda #${saleId} lançada com sucesso!`);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error saving sale", err);
-      alert("Erro ao salvar venda.");
+      alert("Erro ao salvar venda: " + (err.message || 'Erro desconhecido'));
     }
   };
 
@@ -1302,11 +1363,14 @@ const App: React.FC = () => {
 
   const DeliveryModule = () => {
     const deliverySales = sales.filter(s => {
+      // If not master, only see own deliveries
+      if (!currentUser?.roles?.includes(Role.MASTER) && s.deliveryPersonId !== currentUser?.id) return false;
+      
       if (deliveryFilter.status !== 'ALL' && s.status !== deliveryFilter.status) return false;
       if (deliveryFilter.deliveryPersonId !== 'ALL' && s.deliveryPersonId !== deliveryFilter.deliveryPersonId) return false;
       return true;
     }).sort((a, b) => b.date.localeCompare(a.date));
-    const deliveryPeople = collectors.filter(c => c.role === Role.DELIVERY || c.role === Role.MASTER);
+    const deliveryPeople = collectors.filter(c => c.roles?.includes(Role.DELIVERY) || c.roles?.includes(Role.MASTER));
     return (
       <div className="space-y-6">
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-6">
@@ -1318,12 +1382,14 @@ const App: React.FC = () => {
               ))}
             </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <select value={deliveryFilter.deliveryPersonId} onChange={e => setDeliveryFilter({ ...deliveryFilter, deliveryPersonId: e.target.value })} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-600 font-bold text-slate-600 uppercase">
-              <option value="ALL">Todos os Entregadores</option>
-              {deliveryPeople.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </div>
+          {currentUser?.roles?.includes(Role.MASTER) && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <select value={deliveryFilter.deliveryPersonId} onChange={e => setDeliveryFilter({ ...deliveryFilter, deliveryPersonId: e.target.value })} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-600 font-bold text-slate-600 uppercase">
+                <option value="ALL">Todos os Entregadores</option>
+                {deliveryPeople.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+          )}
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {deliverySales.map(sale => {
@@ -1468,7 +1534,7 @@ const App: React.FC = () => {
             <h3 className="text-sm font-black uppercase tracking-widest text-slate-400">Tarefas Ativas</h3>
           </div>
           <div className="flex-1 overflow-y-auto p-6 space-y-4">
-            {tasks.length > 0 ? tasks.map(task => (
+            {tasks.filter(t => currentUser?.roles?.includes(Role.MASTER) || t.userId === currentUser?.id).length > 0 ? tasks.filter(t => currentUser?.roles?.includes(Role.MASTER) || t.userId === currentUser?.id).map(task => (
               <div key={task.id} className={`p-4 rounded-2xl border transition-all ${task.status === 'COMPLETED' ? 'bg-slate-50 border-slate-100 opacity-60' : 'bg-white border-slate-200 shadow-sm'}`}>
                 <div className="flex justify-between items-start gap-4">
                   <div className="flex-1">
@@ -1607,7 +1673,15 @@ const App: React.FC = () => {
                     {clientSummary.isOverdue && <div className="absolute top-0 right-0 p-2 bg-red-600 text-white rounded-bl-xl shadow-lg animate-pulse"><AlertTriangle size={16} /></div>}
                     <div className="flex items-start justify-between mb-4">
                       <div className={`p-3 rounded-xl ${clientSummary.isOverdue ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'}`}><Contact size={24} /></div>
-                      <div className="text-right"><span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Fichas</span><span className="text-lg font-black text-slate-900">{clientSummary.saleCount}</span></div>
+                      <div className="flex gap-2 items-center">
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); handleDeleteClient(c.id); }}
+                          className="p-2 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                        <div className="text-right"><span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Fichas</span><span className="text-lg font-black text-slate-900">{clientSummary.saleCount}</span></div>
+                      </div>
                     </div>
                     <div>
                       <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight truncate group-hover:text-blue-600 transition-colors">{c.name}</h3>
@@ -1688,11 +1762,11 @@ const App: React.FC = () => {
           />
         )}
 
-        {role === Role.MASTER && activeTab === 'collectors' && (
+        {currentUser?.roles?.includes(Role.MASTER) && activeTab === 'collectors' && (
           <div className="space-y-6">
             <div className="flex justify-between items-center bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
               <div><h2 className="text-xl font-black uppercase tracking-tight">Gestão de Equipe</h2><p className="text-sm text-gray-400 font-bold">Gerencie sua equipe de campo (Cobradores, Entregadores e Montadores)</p></div>
-              <button onClick={() => { setEditingCollectorId(null); setNewCollector({ name: '', phone: '', username: '', password: '', role: Role.COLLECTOR, active: true, saleCommissionRate: 0, collectionCommissionRate: 0 }); setIsAddCollectorModalOpen(true); }} className="flex items-center justify-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-blue-700 shadow-lg transition-all active:scale-95"><UserPlus size={20} /> Novo Colaborador</button>
+              <button onClick={() => { setEditingCollectorId(null); setNewCollector({ name: '', phone: '', username: '', password: '', roles: [Role.COLLECTOR], active: true, saleCommissionRate: 0, collectionCommissionRate: 0 }); setIsAddCollectorModalOpen(true); }} className="flex items-center justify-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-blue-700 shadow-lg transition-all active:scale-95"><UserPlus size={20} /> Novo Colaborador</button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">{collectors.map(c => (
               <div key={c.id} className={`bg-white p-6 rounded-2xl shadow-sm border transition-all ${c.active === false ? 'border-red-100 bg-red-50/10 opacity-75' : 'border-gray-100'} flex flex-col gap-4 relative group`}>
@@ -1701,13 +1775,16 @@ const App: React.FC = () => {
                   <button onClick={() => handleToggleCollectorStatus(c.id)} className={`p-2 rounded-lg transition-all ${c.active === false ? 'text-green-600 bg-green-50 hover:bg-green-100' : 'text-red-400 bg-red-50 hover:bg-red-100'}`}><Power size={16} /></button>
                 </div>
                 <div className="flex items-center gap-4">
-                  <div className={`p-4 rounded-full transition-colors ${c.active === false ? 'bg-red-100 text-red-400' : 'bg-slate-100 text-slate-400'}`}>
-                    {c.role === Role.DELIVERY ? <Truck size={24} /> : c.role === Role.ASSEMBLER ? <Zap size={24} /> : <UserCheck size={24} />}
-                  </div>
+                    <div className="flex gap-1">
+                      {c.roles?.includes(Role.DELIVERY) && <Truck size={24} />}
+                      {c.roles?.includes(Role.ASSEMBLER) && <Zap size={24} />}
+                      {c.roles?.includes(Role.COLLECTOR) && <UserCheck size={24} />}
+                      {c.roles?.includes(Role.MASTER) && <Lock size={24} />}
+                    </div>
                   <div>
                     <h3 className="font-black text-slate-800 uppercase tracking-tight">{c.name}</h3>
                     <div className="flex items-center gap-2 mt-1">
-                      <span className="text-[9px] font-black bg-slate-100 text-slate-500 px-2 py-0.5 rounded-md uppercase tracking-widest">{c.role}</span>
+                      <span className="text-[9px] font-black bg-slate-100 text-slate-500 px-2 py-0.5 rounded-md uppercase tracking-widest">{c.roles?.join(', ')}</span>
                       <p className="text-xs font-bold text-slate-400">{c.phone}</p>
                     </div>
                   </div>
@@ -1935,34 +2012,74 @@ const App: React.FC = () => {
 
         {isAddSaleModalOpen && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"><div className="bg-white rounded-3xl w-full max-w-4xl p-8 shadow-2xl scale-in-center overflow-y-auto max-h-[90vh]"><div className="flex justify-between items-center mb-6"><h3 className="text-xl font-black uppercase tracking-tight">Nova Venda (Ficha)</h3><button onClick={() => setIsAddSaleModalOpen(false)}><X size={24} className="text-slate-400" /></button></div><div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8"><div className="md:col-span-2"><div className="flex items-end gap-2"><div className="flex-1"><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Cliente</label><select value={newSale.clientId} onChange={(e) => setNewSale({ ...newSale, clientId: e.target.value })} className="w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 p-2.5 bg-gray-50 outline-none"><option value="">Selecione...</option>{clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div><button onClick={() => setIsAddClientModalOpen(true)} className="p-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 active:scale-95"><Plus size={24} /></button></div></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Entrada (PGL)</label><input type="number" value={newSale.downPayment} onChange={(e) => setNewSale({ ...newSale, downPayment: e.target.value })} placeholder="R$ 0,00" className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500" /></div>
-            <div className="md:col-span-2">
-              <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Produto (Opcional)</label>
-              <select 
-                value={newSale.productId} 
-                onChange={(e) => {
-                  const p = products.find(prod => prod.id === e.target.value);
-                  setNewSale(prev => ({ 
-                    ...prev, 
-                    productId: e.target.value,
-                    description: p ? p.name : prev.description,
-                    totalAmount: p ? p.price.toString() : prev.totalAmount
-                  }));
-                }} 
-                className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500"
-              >
-                <option value="">Selecione um produto...</option>
-                {products.map(p => <option key={p.id} value={p.id}>{p.name} - {formatCurrency(p.price)}</option>)}
-              </select>
+            
+            <div className="md:col-span-3 border-y border-slate-100 py-6 my-2">
+              <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Produtos / Itens da Venda</h4>
+              
+              {/* Adicionar Item */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-6 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                <div className="md:col-span-2">
+                  <label className="block text-[8px] font-black text-slate-400 uppercase mb-1">Produto</label>
+                  <select 
+                    value={selectedProductForItem} 
+                    onChange={(e) => setSelectedProductForItem(e.target.value)} 
+                    className="w-full border-gray-300 rounded-xl p-2.5 bg-white outline-none shadow-sm focus:ring-blue-500 text-sm"
+                  >
+                    <option value="">Escolha um produto...</option>
+                    {products.map(p => <option key={p.id} value={p.id}>{p.name} - {formatCurrency(p.price)}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[8px] font-black text-slate-400 uppercase mb-1">Quantidade</label>
+                  <input 
+                    type="number" 
+                    value={selectedProductQty} 
+                    onChange={(e) => setSelectedProductQty(e.target.value)} 
+                    className="w-full border-gray-300 rounded-xl p-2.5 bg-white outline-none shadow-sm focus:ring-blue-500 text-sm" 
+                  />
+                </div>
+                <div className="flex items-end">
+                  <button 
+                    onClick={handleAddItemToSale}
+                    className="w-full py-2.5 bg-slate-900 text-white rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-black transition-all active:scale-95 flex items-center justify-center gap-2"
+                  >
+                    <Plus size={16} /> Adicionar
+                  </button>
+                </div>
+              </div>
+
+              {/* Lista de Itens */}
+              <div className="space-y-2">
+                {newSale.items.map((item, idx) => (
+                  <div key={idx} className="flex items-center justify-between bg-white border border-slate-100 p-3 rounded-xl shadow-sm hover:border-blue-200 transition-all">
+                    <div className="flex items-center gap-4">
+                      <div className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center text-blue-600 font-black text-xs">{item.quantity}x</div>
+                      <div>
+                        <p className="text-sm font-black text-slate-800 uppercase tracking-tight">{item.description}</p>
+                        <p className="text-[10px] text-slate-400 font-bold">{formatCurrency(item.unitPrice)} cada</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-6">
+                      <p className="text-sm font-black text-slate-900">{formatCurrency(item.total)}</p>
+                      <button onClick={() => handleRemoveItemFromSale(idx)} className="text-red-400 hover:text-red-600 p-1"><X size={18} /></button>
+                    </div>
+                  </div>
+                ))}
+                {newSale.items.length === 0 && (
+                  <div className="text-center py-6 text-slate-300 text-[10px] font-bold uppercase tracking-widest border-2 border-dashed border-slate-100 rounded-2xl italic">Nenhum produto adicionado</div>
+                )}
+              </div>
             </div>
+
             <div className="md:col-span-1">
               <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Total da Venda</label>
-              <input type="number" value={newSale.totalAmount} onChange={(e) => setNewSale({ ...newSale, totalAmount: e.target.value })} placeholder="R$ 0,00" className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500" />
+              <input type="number" value={newSale.totalAmount} onChange={(e) => setNewSale({ ...newSale, totalAmount: e.target.value })} placeholder="R$ 0,00" className="w-full border-gray-300 rounded-lg p-2.5 bg-blue-50 font-black text-blue-800 outline-none shadow-sm focus:ring-blue-500" />
             </div>
-            <div className="md:col-span-3">
-              <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Descrição do Serviço/Objeto (Personalizada)</label>
+            <div className="md:col-span-2">
+              <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Descrição / Notas da Venda</label>
               <input type="text" value={newSale.description} onChange={(e) => setNewSale({ ...newSale, description: e.target.value })} placeholder="Ex: Móveis" className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500" />
             </div>
-            <div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Data 1º Vencimento</label><input type="date" value={newSale.firstDueDate} onChange={(e) => setNewSale({ ...newSale, firstDueDate: e.target.value })} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500 font-bold" /></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Parcelas</label><input type="number" value={newSale.installmentsCount} onChange={(e) => setNewSale({ ...newSale, installmentsCount: e.target.value })} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500" /></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Cobrador</label><select value={newSale.collectorId} onChange={(e) => setNewSale({ ...newSale, collectorId: e.target.value })} disabled={role === Role.COLLECTOR} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500">{collectors.filter(c => c.active !== false).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div><div>
+            <div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Data 1º Vencimento</label><input type="date" value={newSale.firstDueDate} onChange={(e) => setNewSale({ ...newSale, firstDueDate: e.target.value })} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500 font-bold" /></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Parcelas</label><input type="number" value={newSale.installmentsCount} onChange={(e) => setNewSale({ ...newSale, installmentsCount: e.target.value })} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500" /></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Cobrador</label><select value={newSale.collectorId} onChange={(e) => setNewSale({ ...newSale, collectorId: e.target.value })} disabled={currentUser?.roles?.includes(Role.COLLECTOR) && !currentUser?.roles?.includes(Role.MASTER)} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500 font-bold">{collectors.filter(c => (c.roles?.includes(Role.COLLECTOR) || c.roles?.includes(Role.MASTER)) && c.active !== false).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div><div>
                   <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Entregador</label>
                   <select 
                     value={newSale.deliveryPersonId} 
@@ -1978,7 +2095,7 @@ const App: React.FC = () => {
                     className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500"
                   >
                     <option value="">Selecione...</option>
-                    {collectors.filter(c => (c.role === Role.DELIVERY || c.role === Role.MASTER) && c.active !== false).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    {collectors.filter(c => (c.roles?.includes(Role.DELIVERY) || c.roles?.includes(Role.MASTER)) && c.active !== false).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 </div>
               <div className="md:col-span-1 flex items-center gap-2 pt-6">
@@ -1990,7 +2107,7 @@ const App: React.FC = () => {
                   <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Montador</label>
                   <select value={newSale.assemblerId} onChange={(e) => setNewSale({ ...newSale, assemblerId: e.target.value })} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500">
                     <option value="">Selecione...</option>
-                    {collectors.filter(c => (c.role === Role.ASSEMBLER || c.role === Role.MASTER) && c.active !== false).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    {collectors.filter(c => (c.roles?.includes(Role.ASSEMBLER) || c.roles?.includes(Role.MASTER)) && c.active !== false).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 </div>
               )}
@@ -2407,16 +2524,32 @@ const App: React.FC = () => {
               </div>
               <div className="space-y-4 mb-8">
                 <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Função</label>
-                  <select 
-                    value={newCollector.role} 
-                    onChange={e => setNewCollector({ ...newCollector, role: e.target.value as Role })} 
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500 font-bold"
-                  >
-                    <option value={Role.COLLECTOR}>COBRADOR</option>
-                    <option value={Role.DELIVERY}>ENTREGADOR</option>
-                    <option value={Role.ASSEMBLER}>MONTADOR</option>
-                  </select>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase mb-3">Funções (Marque todas que se aplicam)</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    {[
+                      { id: Role.COLLECTOR, label: 'Cobrador' },
+                      { id: Role.DELIVERY, label: 'Entregador' },
+                      { id: Role.ASSEMBLER, label: 'Montador' },
+                      { id: Role.MASTER, label: 'Administrador' }
+                    ].map(r => (
+                      <label key={r.id} className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl cursor-pointer hover:bg-slate-100 transition-colors border border-slate-200">
+                        <input 
+                          type="checkbox" 
+                          checked={newCollector.roles?.includes(r.id)} 
+                          onChange={e => {
+                            const roles = newCollector.roles || [];
+                            if (e.target.checked) {
+                              setNewCollector({ ...newCollector, roles: [...roles, r.id] });
+                            } else {
+                              setNewCollector({ ...newCollector, roles: roles.filter(role => role !== r.id) });
+                            }
+                          }}
+                          className="w-5 h-5 rounded-lg text-blue-600 focus:ring-blue-500 border-slate-300"
+                        />
+                        <span className="text-xs font-black uppercase tracking-widest text-slate-700">{r.label}</span>
+                      </label>
+                    ))}
+                  </div>
                 </div>
                 <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Nome Completo</label><input type="text" value={newCollector.name} onChange={e => setNewCollector({ ...newCollector, name: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" /></div>
                 <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-1">WhatsApp</label><input type="text" value={newCollector.phone} onChange={e => setNewCollector({ ...newCollector, phone: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" /></div>
@@ -2425,7 +2558,7 @@ const App: React.FC = () => {
                   <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Senha</label><input type="text" value={newCollector.password} onChange={e => setNewCollector({ ...newCollector, password: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" /></div>
                 </div>
                 
-                {newCollector.role !== Role.DELIVERY && (
+                {newCollector.roles?.includes(Role.COLLECTOR) && (
                   <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-100">
                     <div>
                       <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Comissão Venda (%)</label>

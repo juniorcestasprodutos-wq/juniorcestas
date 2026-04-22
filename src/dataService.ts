@@ -13,7 +13,7 @@ export const dataService = {
             id: u.id,
             name: u.name,
             phone: u.phone,
-            role: u.role as Role,
+            roles: (u.role as string)?.split(',').filter(Boolean) as Role[] || [],
             username: u.username,
             password: u.password,
             active: u.active,
@@ -26,7 +26,7 @@ export const dataService = {
         const payload = {
             name: user.name,
             phone: user.phone,
-            role: user.role,
+            role: user.roles?.join(','),
             username: user.username,
             password: user.password,
             active: user.active,
@@ -94,6 +94,11 @@ export const dataService = {
             if (error) throw error;
             return data.id;
         }
+    },
+
+    async deleteClient(id: string): Promise<void> {
+        const { error } = await supabase.from('clients').delete().eq('id', id);
+        if (error) throw error;
     },
 
     // Sales

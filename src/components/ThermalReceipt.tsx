@@ -62,8 +62,19 @@ const ThermalReceipt: React.FC<ThermalReceiptProps> = ({ sale, client, installme
             <span>Parcelas:</span>
             <span>{sale.installmentsCount}x</span>
           </div>
-          <div className="mt-2">
-            <p className="font-bold uppercase">Vencimentos:</p>
+
+          <div className="mt-2 border-t border-dashed border-black pt-1">
+            <p className="font-bold uppercase text-[8px]">Produtos:</p>
+            {sale.items.map((item, idx) => (
+              <div key={idx} className="flex justify-between text-[8px]">
+                <span>{item.quantity}x {item.description}</span>
+                <span>{formatCurrency(item.total)}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-2 border-t border-dashed border-black pt-1">
+            <p className="font-bold uppercase text-[8px]">Vencimentos:</p>
             {sale.installments.map(i => (
               <div key={i.id} className="flex justify-between text-[8px]">
                 <span>P{i.number}: {formatDate(i.dueDate)}</span>

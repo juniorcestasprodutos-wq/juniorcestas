@@ -10,7 +10,7 @@ export interface User {
   id: string;
   name: string;
   phone: string;
-  role: Role;
+  roles: Role[];
   username?: string;
   password?: string;
   active?: boolean;
