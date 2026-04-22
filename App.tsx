@@ -12,7 +12,7 @@ import {
   Printer, AlertCircle, TrendingUp, UserPlus, Phone, Hash,
   CalendarClock, ArrowRight, Route as RouteIcon, Lock, User as UserIcon, Edit2, Power, Contact,
   History, CreditCard, ChevronRight, AlertTriangle, Filter, Settings, RefreshCw, QrCode,
-  FileSpreadsheet, Truck, Check, Layers, Zap, Package, MessageCircle, Trash2
+  FileSpreadsheet, Truck, Check, Layers, Zap, Package, MessageCircle, Trash2, ShoppingCart
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, AreaChart, Area } from 'recharts';
 import axios from 'axios';
@@ -131,21 +131,39 @@ const App: React.FC = () => {
   const [newClient, setNewClient] = useState(INITIAL_CLIENT_STATE);
   const [newSale, setNewSale] = useState(INITIAL_SALE_STATE);
 
-  // States para adição de item individual na venda
   const [selectedProductForItem, setSelectedProductForItem] = useState('');
+  const [selectedProductPrice, setSelectedProductPrice] = useState('');
+  const [manualProductName, setManualProductName] = useState('');
   const [selectedProductQty, setSelectedProductQty] = useState('1');
 
   const handleAddItemToSale = () => {
-    const product = products.find(p => p.id === selectedProductForItem);
-    if (!product) return alert("Selecione um produto");
-    
+    let finalDescription = '';
+    let finalPrice = 0;
+    let finalProductId = null;
+
+    if (selectedProductForItem) {
+      const product = products.find(p => p.id === selectedProductForItem);
+      if (product) {
+        finalProductId = product.id;
+        finalDescription = product.name;
+        finalPrice = parseFloat(selectedProductPrice) || product.price;
+      }
+    } else if (manualProductName.trim()) {
+      finalDescription = manualProductName.trim();
+      finalPrice = parseFloat(selectedProductPrice) || 0;
+    } else {
+      return alert("Selecione um produto ou digite o nome de um produto avulso.");
+    }
+
+    if (finalPrice <= 0 && !confirm("O preço deste item é R$ 0,00. Deseja continuar?")) return;
+
     const qty = parseInt(selectedProductQty) || 1;
     const newItem: SaleItem = {
-      productId: product.id,
+      productId: finalProductId,
       quantity: qty,
-      description: product.name,
-      unitPrice: product.price,
-      total: product.price * qty
+      description: finalDescription,
+      unitPrice: finalPrice,
+      total: finalPrice * qty
     };
 
     const updatedItems = [...newSale.items, newItem];
@@ -155,13 +173,17 @@ const App: React.FC = () => {
     setNewSale({
       ...newSale,
       items: updatedItems,
-      totalAmount: totalVenda.toString(),
+      totalAmount: totalVenda.toFixed(2),
       description: descGeral
     });
 
+    // Reset fields
     setSelectedProductForItem('');
+    setSelectedProductPrice('');
+    setManualProductName('');
     setSelectedProductQty('1');
   };
+
 
   const handleRemoveItemFromSale = (index: number) => {
     const updatedItems = newSale.items.filter((_, i) => i !== index);
@@ -865,23 +887,32 @@ const App: React.FC = () => {
 
   const handleSaveSale = async () => {
     try {
-      if (!newSale.clientId || !newSale.totalAmount || !newSale.installmentsCount) {
-        alert("Por favor, preencha todos os campos obrigatórios.");
+      if (!newSale.clientId || newSale.items.length === 0 || !newSale.installmentsCount) {
+        alert("Por favor, preencha todos os campos obrigatórios: Cliente, ao menos um Produto e as Parcelas.");
         return;
       }
 
-      const total = parseFloat(newSale.totalAmount);
-      const installmentsCount = parseInt(newSale.installmentsCount);
-      const downPayment = parseFloat(newSale.downPayment || '0');
+      const total = parseFloat(newSale.totalAmount) || 0;
+      const installmentsCount = parseInt(newSale.installmentsCount) || 1;
+      const downPayment = parseFloat(newSale.downPayment || '0') || 0;
+
+      if (total <= 0) {
+        alert("O total da venda deve ser maior que zero.");
+        return;
+      }
 
       // 1. Validar Estoque se houver produto selecionado
-      if (newSale.productId) {
-        const p = products.find(prod => prod.id === newSale.productId);
-        if (p && p.stockControlEnabled && p.stockQuantity <= 0) {
-          alert(`Produto ${p.name} está sem estoque!`);
-          return;
+      for (const item of newSale.items) {
+        if (item.productId) {
+          const p = products.find(prod => prod.id === item.productId);
+          if (p && p.stockControlEnabled && (p.stockQuantity || 0) < item.quantity) {
+            alert(`Produto ${p.name} está sem estoque suficiente! (Temos: ${p.stockQuantity})`);
+            return;
+          }
         }
       }
+      
+      alert("Iniciando processamento da venda...");
 
       // 2. Lógica de Alocação (PF/PJ/INFINITY)
       let tokenType: 'PF' | 'PJ' | 'INFINITY' = 'PF';
@@ -902,9 +933,21 @@ const App: React.FC = () => {
       }
 
       // 3. Gerar ID e Parcelas
-      const nextId = sales.length > 0 ? Math.max(...sales.map(s => parseInt(s.id) || 0)) + 1 : 1001;
+      const numericIds = sales.map(s => parseInt(s.id)).filter(n => !isNaN(n));
+      const nextId = numericIds.length > 0 ? Math.max(...numericIds) + 1 : 1001;
       const saleId = nextId.toString();
-      const firstDue = new Date(newSale.firstDueDate);
+      
+      if (!newSale.firstDueDate) {
+        alert("Por favor, selecione a data do primeiro vencimento.");
+        return;
+      }
+      
+      const firstDue = new Date(newSale.firstDueDate + 'T12:00:00'); // Use noon to avoid timezone shifts
+      if (isNaN(firstDue.getTime())) {
+        alert("Data de vencimento inválida.");
+        return;
+      }
+
       const installmentValue = (total - downPayment) / installmentsCount;
       const installments: Installment[] = Array.from({ length: installmentsCount }, (_, i) => {
         const d = new Date(firstDue);
@@ -927,7 +970,7 @@ const App: React.FC = () => {
         id: saleId,
         clientId: newSale.clientId,
         collectorId: newSale.collectorId || 'loja',
-        deliveryPersonId: newSale.deliveryPersonId,
+        deliveryPersonId: newSale.deliveryPersonId || undefined,
         date: new Date().toISOString().split('T')[0],
         totalAmount: total,
         downPayment,
@@ -938,11 +981,13 @@ const App: React.FC = () => {
         tokenType,
         status: 'PENDING',
         isAssembly: newSale.isAssembly,
-        assemblerId: newSale.assemblerId,
+        assemblerId: newSale.assemblerId || undefined,
         observations: newSale.observations
       };
 
+      alert("Salvando no banco de dados...");
       await dataService.saveSale(sale);
+      alert("Venda salva! Atualizando estoque...");
       
       // 5. Registrar baixa de estoque para cada item que possuir produto vinculado
       for (const item of sale.items) {
@@ -973,6 +1018,10 @@ const App: React.FC = () => {
       setProducts(await dataService.getProducts());
       setIsAddSaleModalOpen(false);
       setNewSale(INITIAL_SALE_STATE);
+      setSelectedProductForItem('');
+      setSelectedProductPrice('');
+      setManualProductName('');
+      setSelectedProductQty('1');
       alert(`Venda #${saleId} lançada com sucesso!`);
     } catch (err: any) {
       console.error("Error saving sale", err);
@@ -1223,6 +1272,16 @@ const App: React.FC = () => {
               </div>
             </div>
             <div className="flex items-center gap-4">
+              <button 
+                onClick={() => { 
+                  setNewSale({ ...INITIAL_SALE_STATE, clientId: client.id }); 
+                  setIsAddSaleModalOpen(true); 
+                  setSelectedClientForDetails(null); 
+                }}
+                className="flex items-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-blue-700 shadow-xl shadow-blue-100 active:scale-95 transition-all"
+              >
+                <ShoppingCart size={16} /> Lançar Venda
+              </button>
               <div className="text-right">
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Score de Pontualidade</p>
                 <p className={`text-xl font-black ${score >= 80 ? 'text-green-600' : score >= 50 ? 'text-orange-500' : 'text-red-600'}`}>{score}%</p>
@@ -1680,6 +1739,17 @@ const App: React.FC = () => {
                         >
                           <Trash2 size={16} />
                         </button>
+                        <button 
+                          onClick={(e) => { 
+                            e.stopPropagation(); 
+                            setNewSale({ ...INITIAL_SALE_STATE, clientId: c.id }); 
+                            setIsAddSaleModalOpen(true); 
+                          }}
+                          className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                          title="Vender"
+                        >
+                          <ShoppingCart size={18} />
+                        </button>
                         <div className="text-right"><span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Fichas</span><span className="text-lg font-black text-slate-900">{clientSummary.saleCount}</span></div>
                       </div>
                     </div>
@@ -2017,20 +2087,53 @@ const App: React.FC = () => {
               <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Produtos / Itens da Venda</h4>
               
               {/* Adicionar Item */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-6 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+              <div className="grid grid-cols-1 md:grid-cols-6 gap-3 mb-6 bg-slate-50 p-4 rounded-2xl border border-slate-100">
                 <div className="md:col-span-2">
-                  <label className="block text-[8px] font-black text-slate-400 uppercase mb-1">Produto</label>
+                  <label className="block text-[8px] font-black text-slate-400 uppercase mb-1">Produto (Catálogo)</label>
                   <select 
                     value={selectedProductForItem} 
-                    onChange={(e) => setSelectedProductForItem(e.target.value)} 
+                    onChange={(e) => {
+                      const prodId = e.target.value;
+                      setSelectedProductForItem(prodId);
+                      const prod = products.find(p => p.id === prodId);
+                      if (prod) {
+                        setSelectedProductPrice(prod.price.toString());
+                        setManualProductName(''); // Limpa o manual se escolher do catálogo
+                      }
+                    }} 
                     className="w-full border-gray-300 rounded-xl p-2.5 bg-white outline-none shadow-sm focus:ring-blue-500 text-sm"
                   >
                     <option value="">Escolha um produto...</option>
                     {products.map(p => <option key={p.id} value={p.id}>{p.name} - {formatCurrency(p.price)}</option>)}
                   </select>
                 </div>
-                <div>
-                  <label className="block text-[8px] font-black text-slate-400 uppercase mb-1">Quantidade</label>
+                <div className="md:col-span-2">
+                  <label className="block text-[8px] font-black text-slate-400 uppercase mb-1">Ou Digite Produto Avulso</label>
+                  <input 
+                    type="text"
+                    value={manualProductName}
+                    onChange={(e) => {
+                      setManualProductName(e.target.value);
+                      if (e.target.value) {
+                        setSelectedProductForItem(''); // Limpa o catálogo se digitar manual
+                      }
+                    }}
+                    placeholder="Nome do produto..."
+                    className="w-full border-gray-300 rounded-xl p-2.5 bg-white outline-none shadow-sm focus:ring-blue-500 text-sm"
+                  />
+                </div>
+                <div className="md:col-span-1">
+                  <label className="block text-[8px] font-black text-slate-400 uppercase mb-1">Preço Unit.</label>
+                  <input 
+                    type="number" 
+                    value={selectedProductPrice} 
+                    onChange={(e) => setSelectedProductPrice(e.target.value)} 
+                    placeholder="0.00"
+                    className="w-full border-gray-300 rounded-xl p-2.5 bg-white outline-none shadow-sm focus:ring-blue-500 text-sm" 
+                  />
+                </div>
+                <div className="md:col-span-1">
+                  <label className="block text-[8px] font-black text-slate-400 uppercase mb-1">Qtd</label>
                   <input 
                     type="number" 
                     value={selectedProductQty} 
@@ -2038,12 +2141,12 @@ const App: React.FC = () => {
                     className="w-full border-gray-300 rounded-xl p-2.5 bg-white outline-none shadow-sm focus:ring-blue-500 text-sm" 
                   />
                 </div>
-                <div className="flex items-end">
+                <div className="md:col-span-6 flex items-end mt-2">
                   <button 
                     onClick={handleAddItemToSale}
-                    className="w-full py-2.5 bg-slate-900 text-white rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-black transition-all active:scale-95 flex items-center justify-center gap-2"
+                    className="w-full py-3 bg-slate-900 text-white rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-black transition-all active:scale-95 flex items-center justify-center gap-2"
                   >
-                    <Plus size={16} /> Adicionar
+                    <Plus size={16} /> Adicionar Produto ao Carrinho
                   </button>
                 </div>
               </div>
@@ -2071,52 +2174,151 @@ const App: React.FC = () => {
               </div>
             </div>
 
-            <div className="md:col-span-1">
-              <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Total da Venda</label>
-              <input type="number" value={newSale.totalAmount} onChange={(e) => setNewSale({ ...newSale, totalAmount: e.target.value })} placeholder="R$ 0,00" className="w-full border-gray-300 rounded-lg p-2.5 bg-blue-50 font-black text-blue-800 outline-none shadow-sm focus:ring-blue-500" />
-            </div>
-            <div className="md:col-span-2">
-              <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Descrição / Notas da Venda</label>
-              <input type="text" value={newSale.description} onChange={(e) => setNewSale({ ...newSale, description: e.target.value })} placeholder="Ex: Móveis" className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500" />
-            </div>
-            <div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Data 1º Vencimento</label><input type="date" value={newSale.firstDueDate} onChange={(e) => setNewSale({ ...newSale, firstDueDate: e.target.value })} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500 font-bold" /></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Parcelas</label><input type="number" value={newSale.installmentsCount} onChange={(e) => setNewSale({ ...newSale, installmentsCount: e.target.value })} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500" /></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Cobrador</label><select value={newSale.collectorId} onChange={(e) => setNewSale({ ...newSale, collectorId: e.target.value })} disabled={currentUser?.roles?.includes(Role.COLLECTOR) && !currentUser?.roles?.includes(Role.MASTER)} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500 font-bold">{collectors.filter(c => (c.roles?.includes(Role.COLLECTOR) || c.roles?.includes(Role.MASTER)) && c.active !== false).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div><div>
-                  <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Entregador</label>
-                  <select 
-                    value={newSale.deliveryPersonId} 
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setNewSale(prev => ({ 
-                        ...prev, 
-                        deliveryPersonId: val,
-                        // Preferência: Se selecionou entregador e o cobrador ainda é a loja, assume o entregador
-                        collectorId: (prev.collectorId === 'loja' || !prev.collectorId) ? val : prev.collectorId 
-                      }));
-                    }} 
-                    className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500"
-                  >
-                    <option value="">Selecione...</option>
-                    {collectors.filter(c => (c.roles?.includes(Role.DELIVERY) || c.roles?.includes(Role.MASTER)) && c.active !== false).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
-                </div>
-              <div className="md:col-span-1 flex items-center gap-2 pt-6">
-                <input type="checkbox" id="is-assembly" checked={newSale.isAssembly} onChange={e => setNewSale({ ...newSale, isAssembly: e.target.checked })} className="w-5 h-5 rounded accent-blue-600" />
-                <label htmlFor="is-assembly" className="text-xs font-black text-slate-600 uppercase tracking-widest cursor-pointer">Montagem?</label>
-              </div>
-              {newSale.isAssembly && (
-                <div>
-                  <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Montador</label>
-                  <select value={newSale.assemblerId} onChange={(e) => setNewSale({ ...newSale, assemblerId: e.target.value })} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500">
-                    <option value="">Selecione...</option>
-                    {collectors.filter(c => (c.roles?.includes(Role.ASSEMBLER) || c.roles?.includes(Role.MASTER)) && c.active !== false).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
-                </div>
-              )}
+            {/* Formulário Principal - Grade de 12 colunas para aproveitamento total da largura */}
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-x-8 gap-y-6">
+              
+              {/* Linha 1: Total e Descrição */}
               <div className="md:col-span-3">
-                <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Observações (Cria tarefa)</label>
-                <textarea value={newSale.observations} onChange={e => setNewSale({ ...newSale, observations: e.target.value })} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500 h-20" placeholder="Digite observações que serão convertidas em tarefas..."></textarea>
+                <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Total da Venda</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-800 font-bold text-xs">R$</span>
+                  <input 
+                    type="number" 
+                    value={newSale.totalAmount} 
+                    onChange={(e) => setNewSale({ ...newSale, totalAmount: e.target.value })} 
+                    placeholder="0,00" 
+                    className="w-full border-gray-300 rounded-xl p-3 pl-10 bg-blue-50 font-black text-blue-800 outline-none shadow-sm focus:ring-2 focus:ring-blue-500 transition-all" 
+                  />
+                </div>
               </div>
-            </div><button onClick={handleSaveSale} className="w-full py-4 bg-blue-600 text-white font-black uppercase text-sm tracking-widest rounded-2xl active:scale-95 transition-all shadow-lg">Confirmar Lançamento</button></div></div>
-        )}
+              <div className="md:col-span-9">
+                <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Descrição / Notas da Venda</label>
+                <input 
+                  type="text" 
+                  value={newSale.description} 
+                  onChange={(e) => setNewSale({ ...newSale, description: e.target.value })} 
+                  placeholder="Ex: Móveis, Cesta Básica, Cliente Indicado, etc." 
+                  className="w-full border-gray-300 rounded-xl p-3 bg-gray-50 outline-none shadow-sm focus:ring-2 focus:ring-blue-500 transition-all" 
+                />
+              </div>
+              
+              {/* Linha 2: Data, Parcelas e Cobrador */}
+              <div className="md:col-span-4">
+                <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Data 1º Vencimento</label>
+                <input 
+                  type="date" 
+                  value={newSale.firstDueDate} 
+                  onChange={(e) => setNewSale({ ...newSale, firstDueDate: e.target.value })} 
+                  className="w-full border-gray-300 rounded-xl p-3 bg-gray-50 outline-none shadow-sm focus:ring-2 focus:ring-blue-500 font-bold transition-all" 
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-xs font-bold text-gray-400 uppercase mb-1 whitespace-nowrap">Nº Parcelas</label>
+                <input 
+                  type="number" 
+                  value={newSale.installmentsCount} 
+                  onChange={(e) => setNewSale({ ...newSale, installmentsCount: e.target.value })} 
+                  className="w-full border-gray-300 rounded-xl p-3 bg-gray-50 outline-none shadow-sm focus:ring-2 focus:ring-blue-500 font-bold transition-all" 
+                />
+              </div>
+              <div className="md:col-span-6">
+                <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Cobrador Responsável</label>
+                <select 
+                  value={newSale.collectorId} 
+                  onChange={(e) => setNewSale({ ...newSale, collectorId: e.target.value })} 
+                  disabled={currentUser?.roles?.includes(Role.COLLECTOR) && !currentUser?.roles?.includes(Role.MASTER)} 
+                  className="w-full border-gray-300 rounded-xl p-3 bg-gray-50 outline-none shadow-sm focus:ring-2 focus:ring-blue-500 font-bold transition-all appearance-none cursor-pointer"
+                >
+                  {collectors.filter(c => (c.roles?.includes(Role.COLLECTOR) || c.roles?.includes(Role.MASTER)) && c.active !== false).map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Linha 3: Logística e Montagem */}
+              <div className="md:col-span-6">
+                <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Entregador</label>
+                <select 
+                  value={newSale.deliveryPersonId} 
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setNewSale(prev => ({ 
+                      ...prev, 
+                      deliveryPersonId: val,
+                      collectorId: (prev.collectorId === 'loja' || !prev.collectorId) ? val : prev.collectorId 
+                    }));
+                  }} 
+                  className="w-full border-gray-300 rounded-xl p-3 bg-gray-50 outline-none shadow-sm focus:ring-2 focus:ring-blue-500 transition-all appearance-none cursor-pointer"
+                >
+                  <option value="">Selecione o entregador...</option>
+                  {collectors.filter(c => (c.roles?.includes(Role.DELIVERY) || c.roles?.includes(Role.MASTER)) && c.active !== false).map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="md:col-span-2 flex items-end pb-3">
+                <label className="flex items-center gap-3 cursor-pointer group bg-slate-100 p-3 rounded-xl w-full hover:bg-slate-200 transition-all">
+                  <input 
+                    type="checkbox" 
+                    id="is-assembly" 
+                    checked={newSale.isAssembly} 
+                    onChange={e => setNewSale({ ...newSale, isAssembly: e.target.checked })} 
+                    className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 accent-blue-600" 
+                  />
+                  <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest leading-none">Montagem?</span>
+                </label>
+              </div>
+
+              <div className={`md:col-span-4 transition-all ${newSale.isAssembly ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'}`}>
+                {newSale.isAssembly && (
+                  <>
+                    <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Montador Designado</label>
+                    <select value={newSale.assemblerId} onChange={(e) => setNewSale({ ...newSale, assemblerId: e.target.value })} className="w-full border-gray-300 rounded-xl p-3 bg-gray-50 outline-none shadow-sm focus:ring-2 focus:ring-blue-500 transition-all appearance-none cursor-pointer">
+                      <option value="">Escolha o montador...</option>
+                      {collectors.filter(c => (c.roles?.includes(Role.ASSEMBLER) || c.roles?.includes(Role.MASTER)) && c.active !== false).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </>
+                )}
+              </div>
+
+              {/* Linha 6 - Observações */}
+              <div className="md:col-span-12">
+                <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Observações / Instruções para Entrega e Financeiro</label>
+                <textarea 
+                  value={newSale.observations} 
+                  onChange={e => setNewSale({ ...newSale, observations: e.target.value })} 
+                  className="w-full border-gray-300 rounded-xl p-4 bg-gray-50 outline-none shadow-sm focus:ring-2 focus:ring-blue-500 h-28 resize-none transition-all placeholder:text-gray-300" 
+                  placeholder="Ex: Deixar com o vizinho, receber somente em dinheiro, etc."
+                ></textarea>
+              </div>
+            </div>
+          </div>
+          
+          {/* Rodapé fixo com largura total e botões robustos */}
+          <div className="p-8 bg-slate-50 border-t border-slate-100 flex flex-col md:flex-row gap-4">
+            <button 
+              onClick={() => {
+                setIsAddSaleModalOpen(false);
+                setNewSale(INITIAL_SALE_STATE);
+              }}
+              className="px-10 py-5 bg-white text-slate-400 font-black uppercase text-xs tracking-widest rounded-2xl border border-slate-200 hover:bg-slate-100 hover:text-slate-600 transition-all shadow-sm active:scale-95"
+            >
+              Cancelar Operação
+            </button>
+            <button 
+              onClick={handleSaveSale} 
+              className="flex-1 py-5 bg-blue-600 text-white font-black uppercase text-sm tracking-widest rounded-2xl active:scale-95 transition-all shadow-xl hover:shadow-blue-200 hover:bg-blue-700 flex items-center justify-center gap-2"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+              </svg>
+              Confirmar e Lançar Venda no Sistema
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
 
         {activeTab === 'tasks' && <TaskPanel />}
 
