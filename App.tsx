@@ -12,7 +12,7 @@ import {
   Printer, AlertCircle, TrendingUp, UserPlus, Phone, Hash,
   CalendarClock, ArrowRight, Route as RouteIcon, Lock, User as UserIcon, Edit2, Power, Contact,
   History, CreditCard, ChevronRight, AlertTriangle, Filter, Settings, RefreshCw, QrCode,
-  FileSpreadsheet, Truck, Check, Layers, Zap, Package
+  FileSpreadsheet, Truck, Check, Layers, Zap, Package, MessageCircle
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, AreaChart, Area } from 'recharts';
 import axios from 'axios';
@@ -89,6 +89,7 @@ const App: React.FC = () => {
     phone: '',
     username: '',
     password: '',
+    role: Role.COLLECTOR as Role,
     active: true,
     saleCommissionRate: 0,
     collectionCommissionRate: 0
@@ -117,6 +118,7 @@ const App: React.FC = () => {
     downPayment: '',
     installmentsCount: '10',
     description: '',
+    productId: '',
     firstDueDate: new Date(new Date().setDate(new Date().getDate() + 30)).toISOString().split('T')[0],
     isAssembly: false,
     assemblerId: '',
@@ -400,7 +402,6 @@ const App: React.FC = () => {
     try {
       const collectorData: Partial<User> = {
         ...newCollector,
-        role: Role.COLLECTOR,
         active: newCollector.active,
         id: editingCollectorId || undefined
       };
@@ -430,6 +431,7 @@ const App: React.FC = () => {
       phone: c.phone,
       username: c.username || '',
       password: c.password || '',
+      role: c.role || Role.COLLECTOR,
       active: c.active !== false,
       saleCommissionRate: c.saleCommissionRate || 0,
       collectionCommissionRate: c.collectionCommissionRate || 0
@@ -807,9 +809,9 @@ const App: React.FC = () => {
       const downPayment = parseFloat(newSale.downPayment || '0');
 
       // 1. Validar Estoque se houver produto selecionado
-      const productsInSale = products.filter(p => p.stockControlEnabled && newSale.description.toLowerCase().includes(p.name.toLowerCase()));
-      for (const p of productsInSale) {
-        if (p.stockQuantity <= 0) {
+      if (newSale.productId) {
+        const p = products.find(prod => prod.id === newSale.productId);
+        if (p && p.stockControlEnabled && p.stockQuantity <= 0) {
           alert(`Produto ${p.name} está sem estoque!`);
           return;
         }
@@ -874,7 +876,7 @@ const App: React.FC = () => {
           quantity: 1,
           unitPrice: total,
           total: total,
-          productId: productsInSale[0]?.id
+          productId: newSale.productId || null
         }],
         installments,
         tokenType,
@@ -909,7 +911,7 @@ const App: React.FC = () => {
       setSales(await dataService.getSales());
       setProducts(await dataService.getProducts());
       setIsAddSaleModalOpen(false);
-      setNewSale({ ...newSale, description: '', totalAmount: '', downPayment: '', observations: '' });
+      setNewSale({ ...newSale, description: '', totalAmount: '', downPayment: '', observations: '', productId: '' });
       alert(`Venda #${saleId} lançada com sucesso!`);
     } catch (err) {
       console.error("Error saving sale", err);
@@ -1689,8 +1691,8 @@ const App: React.FC = () => {
         {role === Role.MASTER && activeTab === 'collectors' && (
           <div className="space-y-6">
             <div className="flex justify-between items-center bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-              <div><h2 className="text-xl font-black uppercase tracking-tight">Gestão de Cobradores</h2><p className="text-sm text-gray-400 font-bold">Gerencie sua equipe de campo</p></div>
-              <button onClick={() => { setEditingCollectorId(null); setNewCollector({ name: '', phone: '', username: '', password: '', active: true }); setIsAddCollectorModalOpen(true); }} className="flex items-center justify-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-blue-700 shadow-lg transition-all active:scale-95"><UserPlus size={20} /> Novo Cobrador</button>
+              <div><h2 className="text-xl font-black uppercase tracking-tight">Gestão de Equipe</h2><p className="text-sm text-gray-400 font-bold">Gerencie sua equipe de campo (Cobradores, Entregadores e Montadores)</p></div>
+              <button onClick={() => { setEditingCollectorId(null); setNewCollector({ name: '', phone: '', username: '', password: '', role: Role.COLLECTOR, active: true, saleCommissionRate: 0, collectionCommissionRate: 0 }); setIsAddCollectorModalOpen(true); }} className="flex items-center justify-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-blue-700 shadow-lg transition-all active:scale-95"><UserPlus size={20} /> Novo Colaborador</button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">{collectors.map(c => (
               <div key={c.id} className={`bg-white p-6 rounded-2xl shadow-sm border transition-all ${c.active === false ? 'border-red-100 bg-red-50/10 opacity-75' : 'border-gray-100'} flex flex-col gap-4 relative group`}>
@@ -1698,7 +1700,18 @@ const App: React.FC = () => {
                   <button onClick={() => handleEditCollector(c)} className="p-2 text-slate-400 hover:text-blue-600 bg-slate-50 hover:bg-blue-50 rounded-lg transition-all"><Edit2 size={16} /></button>
                   <button onClick={() => handleToggleCollectorStatus(c.id)} className={`p-2 rounded-lg transition-all ${c.active === false ? 'text-green-600 bg-green-50 hover:bg-green-100' : 'text-red-400 bg-red-50 hover:bg-red-100'}`}><Power size={16} /></button>
                 </div>
-                <div className="flex items-center gap-4"><div className={`p-4 rounded-full transition-colors ${c.active === false ? 'bg-red-100 text-red-400' : 'bg-slate-100 text-slate-400'}`}><UserCheck size={24} /></div><div><h3 className="font-black text-slate-800 uppercase tracking-tight">{c.name}</h3><p className="text-xs font-bold text-slate-400">{c.phone}</p></div></div>
+                <div className="flex items-center gap-4">
+                  <div className={`p-4 rounded-full transition-colors ${c.active === false ? 'bg-red-100 text-red-400' : 'bg-slate-100 text-slate-400'}`}>
+                    {c.role === Role.DELIVERY ? <Truck size={24} /> : c.role === Role.ASSEMBLER ? <Zap size={24} /> : <UserCheck size={24} />}
+                  </div>
+                  <div>
+                    <h3 className="font-black text-slate-800 uppercase tracking-tight">{c.name}</h3>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-[9px] font-black bg-slate-100 text-slate-500 px-2 py-0.5 rounded-md uppercase tracking-widest">{c.role}</span>
+                      <p className="text-xs font-bold text-slate-400">{c.phone}</p>
+                    </div>
+                  </div>
+                </div>
                 <div className="bg-white/50 p-3 rounded-xl border border-slate-100 flex justify-between items-center"><span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</span><span className={`transition-all ${c.active === false ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'} text-[9px] font-black px-2 py-0.5 rounded-lg uppercase`}>{c.active === false ? 'Inativo' : 'Ativo'}</span></div>
               </div>
             ))}</div>
@@ -1921,7 +1934,35 @@ const App: React.FC = () => {
         )}
 
         {isAddSaleModalOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"><div className="bg-white rounded-3xl w-full max-w-4xl p-8 shadow-2xl scale-in-center overflow-y-auto max-h-[90vh]"><div className="flex justify-between items-center mb-6"><h3 className="text-xl font-black uppercase tracking-tight">Nova Venda (Ficha)</h3><button onClick={() => setIsAddSaleModalOpen(false)}><X size={24} className="text-slate-400" /></button></div><div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8"><div className="md:col-span-2"><div className="flex items-end gap-2"><div className="flex-1"><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Cliente</label><select value={newSale.clientId} onChange={(e) => setNewSale({ ...newSale, clientId: e.target.value })} className="w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 p-2.5 bg-gray-50 outline-none"><option value="">Selecione...</option>{clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div><button onClick={() => setIsAddClientModalOpen(true)} className="p-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 active:scale-95"><Plus size={24} /></button></div></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Entrada (PGL)</label><input type="number" value={newSale.downPayment} onChange={(e) => setNewSale({ ...newSale, downPayment: e.target.value })} placeholder="R$ 0,00" className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500" /></div><div className="md:col-span-2"><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Descrição do Serviço/Objeto</label><input type="text" value={newSale.description} onChange={(e) => setNewSale({ ...newSale, description: e.target.value })} placeholder="Ex: Móveis" className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500" /></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Total da Venda</label><input type="number" value={newSale.totalAmount} onChange={(e) => setNewSale({ ...newSale, totalAmount: e.target.value })} placeholder="R$ 0,00" className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500" /></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Data 1º Vencimento</label><input type="date" value={newSale.firstDueDate} onChange={(e) => setNewSale({ ...newSale, firstDueDate: e.target.value })} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500 font-bold" /></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Parcelas</label><input type="number" value={newSale.installmentsCount} onChange={(e) => setNewSale({ ...newSale, installmentsCount: e.target.value })} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500" /></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Cobrador</label><select value={newSale.collectorId} onChange={(e) => setNewSale({ ...newSale, collectorId: e.target.value })} disabled={role === Role.COLLECTOR} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500">{collectors.filter(c => c.active !== false).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div><div>
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"><div className="bg-white rounded-3xl w-full max-w-4xl p-8 shadow-2xl scale-in-center overflow-y-auto max-h-[90vh]"><div className="flex justify-between items-center mb-6"><h3 className="text-xl font-black uppercase tracking-tight">Nova Venda (Ficha)</h3><button onClick={() => setIsAddSaleModalOpen(false)}><X size={24} className="text-slate-400" /></button></div><div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8"><div className="md:col-span-2"><div className="flex items-end gap-2"><div className="flex-1"><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Cliente</label><select value={newSale.clientId} onChange={(e) => setNewSale({ ...newSale, clientId: e.target.value })} className="w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 p-2.5 bg-gray-50 outline-none"><option value="">Selecione...</option>{clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div><button onClick={() => setIsAddClientModalOpen(true)} className="p-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 active:scale-95"><Plus size={24} /></button></div></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Entrada (PGL)</label><input type="number" value={newSale.downPayment} onChange={(e) => setNewSale({ ...newSale, downPayment: e.target.value })} placeholder="R$ 0,00" className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500" /></div>
+            <div className="md:col-span-2">
+              <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Produto (Opcional)</label>
+              <select 
+                value={newSale.productId} 
+                onChange={(e) => {
+                  const p = products.find(prod => prod.id === e.target.value);
+                  setNewSale(prev => ({ 
+                    ...prev, 
+                    productId: e.target.value,
+                    description: p ? p.name : prev.description,
+                    totalAmount: p ? p.price.toString() : prev.totalAmount
+                  }));
+                }} 
+                className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500"
+              >
+                <option value="">Selecione um produto...</option>
+                {products.map(p => <option key={p.id} value={p.id}>{p.name} - {formatCurrency(p.price)}</option>)}
+              </select>
+            </div>
+            <div className="md:col-span-1">
+              <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Total da Venda</label>
+              <input type="number" value={newSale.totalAmount} onChange={(e) => setNewSale({ ...newSale, totalAmount: e.target.value })} placeholder="R$ 0,00" className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500" />
+            </div>
+            <div className="md:col-span-3">
+              <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Descrição do Serviço/Objeto (Personalizada)</label>
+              <input type="text" value={newSale.description} onChange={(e) => setNewSale({ ...newSale, description: e.target.value })} placeholder="Ex: Móveis" className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500" />
+            </div>
+            <div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Data 1º Vencimento</label><input type="date" value={newSale.firstDueDate} onChange={(e) => setNewSale({ ...newSale, firstDueDate: e.target.value })} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500 font-bold" /></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Parcelas</label><input type="number" value={newSale.installmentsCount} onChange={(e) => setNewSale({ ...newSale, installmentsCount: e.target.value })} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500" /></div><div><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Cobrador</label><select value={newSale.collectorId} onChange={(e) => setNewSale({ ...newSale, collectorId: e.target.value })} disabled={role === Role.COLLECTOR} className="w-full border-gray-300 rounded-lg p-2.5 bg-gray-50 outline-none shadow-sm focus:ring-blue-500">{collectors.filter(c => c.active !== false).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div><div>
                   <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Entregador</label>
                   <select 
                     value={newSale.deliveryPersonId} 
@@ -2358,17 +2399,53 @@ const App: React.FC = () => {
         )}
 
         {isAddCollectorModalOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"><div className="bg-white rounded-3xl w-full max-w-md p-8 shadow-2xl scale-in-center"><div className="flex justify-between items-center mb-6"><h3 className="text-xl font-black uppercase tracking-tight">{editingCollectorId ? 'Editar Cobrador' : 'Novo Cobrador'}</h3><button onClick={() => { setIsAddCollectorModalOpen(false); setEditingCollectorId(null); }}><X size={24} className="text-slate-400" /></button></div><div className="space-y-4 mb-8"><div><label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Nome Completo</label><input type="text" value={newCollector.name} onChange={e => setNewCollector({ ...newCollector, name: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" /></div><div><label className="block text-[10px] font-black text-slate-400 uppercase mb-1">WhatsApp</label><input type="text" value={newCollector.phone} onChange={e => setNewCollector({ ...newCollector, phone: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" /></div><div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-100"><div><label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Usuário</label><input type="text" value={newCollector.username} onChange={e => setNewCollector({ ...newCollector, username: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" /></div><div><label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Senha</label><input type="text" value={newCollector.password} onChange={e => setNewCollector({ ...newCollector, password: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" /></div></div><div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-100">
-            <div>
-              <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Comissão Venda (%)</label>
-              <input type="number" value={newCollector.saleCommissionRate} onChange={e => setNewCollector({ ...newCollector, saleCommissionRate: parseFloat(e.target.value) })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" />
-            </div>
-            <div>
-              <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Comissão Cobrança (%)</label>
-              <input type="number" value={newCollector.collectionCommissionRate} onChange={e => setNewCollector({ ...newCollector, collectionCommissionRate: parseFloat(e.target.value) })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" />
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-3xl w-full max-w-md p-8 shadow-2xl scale-in-center">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-black uppercase tracking-tight">{editingCollectorId ? 'Editar Colaborador' : 'Novo Colaborador'}</h3>
+                <button onClick={() => { setIsAddCollectorModalOpen(false); setEditingCollectorId(null); }}><X size={24} className="text-slate-400" /></button>
+              </div>
+              <div className="space-y-4 mb-8">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Função</label>
+                  <select 
+                    value={newCollector.role} 
+                    onChange={e => setNewCollector({ ...newCollector, role: e.target.value as Role })} 
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500 font-bold"
+                  >
+                    <option value={Role.COLLECTOR}>COBRADOR</option>
+                    <option value={Role.DELIVERY}>ENTREGADOR</option>
+                    <option value={Role.ASSEMBLER}>MONTADOR</option>
+                  </select>
+                </div>
+                <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Nome Completo</label><input type="text" value={newCollector.name} onChange={e => setNewCollector({ ...newCollector, name: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" /></div>
+                <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-1">WhatsApp</label><input type="text" value={newCollector.phone} onChange={e => setNewCollector({ ...newCollector, phone: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" /></div>
+                <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-100">
+                  <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Usuário</label><input type="text" value={newCollector.username} onChange={e => setNewCollector({ ...newCollector, username: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" /></div>
+                  <div><label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Senha</label><input type="text" value={newCollector.password} onChange={e => setNewCollector({ ...newCollector, password: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" /></div>
+                </div>
+                
+                {newCollector.role !== Role.DELIVERY && (
+                  <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-100">
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Comissão Venda (%)</label>
+                      <input type="number" value={newCollector.saleCommissionRate} onChange={e => setNewCollector({ ...newCollector, saleCommissionRate: parseFloat(e.target.value) })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Comissão Cobrança (%)</label>
+                      <input type="number" value={newCollector.collectionCommissionRate} onChange={e => setNewCollector({ ...newCollector, collectionCommissionRate: parseFloat(e.target.value) })} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                  </div>
+                )}
+                
+                <div className="flex items-center gap-3 pt-4 border-t border-slate-100">
+                  <input type="checkbox" id="col-active" checked={newCollector.active} onChange={e => setNewCollector({ ...newCollector, active: e.target.checked })} className="w-5 h-5 rounded accent-blue-600" />
+                  <label htmlFor="col-active" className="text-sm font-black text-slate-600 uppercase tracking-widest cursor-pointer">Colaborador Ativo</label>
+                </div>
+              </div>
+              <button onClick={handleSaveCollector} className="w-full py-4 bg-blue-600 text-white font-black uppercase text-sm tracking-widest rounded-2xl active:scale-95 transition-all shadow-lg">{editingCollectorId ? 'Salvar Alterações' : 'Salvar Colaborador'}</button>
             </div>
           </div>
-            <div className="flex items-center gap-3 pt-4 border-t border-slate-100"><input type="checkbox" id="col-active" checked={newCollector.active} onChange={e => setNewCollector({ ...newCollector, active: e.target.checked })} className="w-5 h-5 rounded accent-blue-600" /><label htmlFor="col-active" className="text-sm font-black text-slate-600 uppercase tracking-widest cursor-pointer">Cobrador Ativo</label></div></div><button onClick={handleSaveCollector} className="w-full py-4 bg-blue-600 text-white font-black uppercase text-sm tracking-widest rounded-2xl active:scale-95 transition-all shadow-lg">{editingCollectorId ? 'Salvar Alterações' : 'Salvar Cobrador'}</button></div></div>
         )}
 
         {isAddClientModalOpen && (

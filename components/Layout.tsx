@@ -47,7 +47,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeRole, currentUser, acti
     { id: 'dashboard', label: 'Painel Master', icon: <LayoutDashboard size={20} /> },
     { id: 'chat', label: 'Chat WhatsApp', icon: <MessageCircle size={20} /> },
     { id: 'master_installments', label: 'Parcelas', icon: <Layers size={20} /> },
-    { id: 'collectors', label: 'Cobradores', icon: <Users size={20} /> },
+    { id: 'collectors', label: 'Equipe', icon: <Users size={20} /> },
     { id: 'clients', label: 'Clientes', icon: <Contact size={20} /> },
     { id: 'sales', label: 'Vendas', icon: <ReceiptText size={20} /> },
     { id: 'delivery', label: 'Entregas', icon: <Truck size={20} /> },
@@ -58,7 +58,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeRole, currentUser, acti
     {id: 'products', label: 'Produtos', icon: <Package size={20} />},
     {id: 'stock', label: 'Estoque', icon: <Box size={20} />},
     {id: 'tasks', label: 'Painel de Tarefas', icon: <Layers size={20} />},
-    { id: 'settings', label: 'Configurações', icon: <Settings size={20} /> },
+    { id: 'config', label: 'Configurações', icon: <Settings size={20} /> },
   ] : activeRole === Role.DELIVERY ? [
     { id: 'delivery', label: 'Minhas Entregas', icon: <Truck size={20} /> },
     { id: 'tasks', label: 'Minhas Tarefas', icon: <Layers size={20} /> },
@@ -151,7 +151,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeRole, currentUser, acti
             <h1 className="text-lg font-bold text-gray-800 truncate">
               {activeTab === 'dashboard' && 'Visão Geral'}
               {activeTab === 'master_installments' && 'Gestão de Parcelas'}
-              {activeTab === 'collectors' && 'Gestão de Cobradores'}
+              {activeTab === 'collectors' && 'Gestão de Equipe'}
               {activeTab === 'clients' && 'Gestão de Clientes'}
               {activeTab === 'sales' && 'Gestão de Vendas'}
               {activeTab === 'delivery' && 'Gestão de Entregas'}
@@ -165,6 +165,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeRole, currentUser, acti
               {activeTab === 'chat' && 'Central de Atendimento WhatsApp'}
               {activeTab === 'products' && 'Catálogo de Produtos'}
               {activeTab === 'stock' && 'Gestão de Estoque'}
+              {activeTab === 'config' && 'Configurações do Sistema'}
             </h1>
           </div>
           <div className="hidden sm:block text-xs text-gray-400 font-bold uppercase tracking-wider">
