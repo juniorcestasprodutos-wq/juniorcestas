@@ -250,7 +250,7 @@ const Chat: React.FC<ChatProps> = ({ clients, whatsappConfig }) => {
                           {msg.message && <p className="text-sm font-medium leading-relaxed">{msg.message}</p>}
                         </div>
                       ) : (
-                        <p className="text-sm font-medium leading-relaxed whitespace-pre-wrap">{msg.message}</p>
+                        <p className="text-sm font-medium leading-relaxed whitespace-pre-wrap break-all md:break-words">{msg.message}</p>
                       )}
                     </div>
                     <div className={`flex items-center gap-1 px-1 ${msg.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}>

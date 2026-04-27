@@ -1084,7 +1084,7 @@ const App: React.FC = () => {
       const worker = collectors.find(c => c.id === newCollectorId);
       if (worker?.phone) {
         const client = clients.find(c => c.id === sale.clientId);
-        const msg = `Credi Fácil: Olá ${worker.name}, a venda #${sale.id} (${client?.name}) foi designada para sua carteira de cobrança.`;
+        const msg = `Credi Fácil: Olá ${worker.name}, a venda #${sale.id} (${formatFirstName(client?.name || '')}) foi designada para sua carteira de cobrança.`;
         await handleSendWhatsApp(worker.phone, msg);
       }
 
